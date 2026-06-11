@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --c-bg: #f4efe6;
+    --c-bg-card: #faf6ee;
+    --c-bg-alt: #ede7da;
+    --c-bg-soft: #efe9dc;
+    --c-field: #fffdf8;
+
+    --c-ink: #2a2722;
+    --c-ink-soft: #6b655b;
+    --c-ink-muted: #9a9389;
+
+    --c-line: #e4ddce;
+    --c-line-strong: #d4ccba;
+
+    --c-accent: #6b8068;
+    --c-accent-ink: #3c5239;
+    --c-accent-soft: #d9e3d4;
+
+    --c-danger: #b5534b;
+    --c-danger-soft: #f1d7d3;
+    --c-warn: #c48c3a;
+    --c-warn-soft: #f4e4c8;
+
+    --topbar-h: 52px;
+    --timeline-h: 320px;
+  }
+
+  html, body, #__nuxt {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg font-sans text-ink antialiased;
+    margin: 0;
+  }
+
+  *:focus-visible {
+    @apply outline-none ring-2 ring-accent rounded;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-[9px] border border-line bg-bg-card px-3 text-[13px] font-medium text-ink transition-colors;
+    height: 34px;
+  }
+  .btn:hover:not(:disabled) { @apply bg-bg-soft; }
+  .btn:disabled { @apply opacity-50; cursor: not-allowed; }
+  .btn-primary {
+    @apply border-ink bg-ink text-bg-card;
+  }
+  .btn-primary:hover:not(:disabled) { background: color-mix(in oklab, var(--c-ink) 90%, transparent); }
+  .btn-danger { @apply border-danger text-danger; }
+  .btn-danger:hover:not(:disabled) { @apply bg-danger-soft; }
+
+  .field {
+    @apply w-full rounded-[8px] border border-line bg-field px-2.5 text-[13px] text-ink;
+    height: 34px;
+  }
+  .field:focus { @apply outline-none border-ink; }
+
+  .panel {
+    @apply rounded-[12px] border border-line bg-bg-card;
+  }
+  .panel-title {
+    @apply px-3 py-2 text-[11px] font-semibold uppercase tracking-[.08em] text-ink-muted;
+  }
+}

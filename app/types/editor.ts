@@ -1,0 +1,83 @@
+// The editor document schema (front-end owned, versioned). Stored verbatim as the timeline scene
+// `document` JSON in the backend.
+
+export const SCENE_SCHEMA_VERSION = 1
+
+/** Fixed relationship between board pixels and physical centimetres (px = cm × PX_PER_CM). */
+export const PX_PER_CM = 10
+
+/** Default size of a newly placed item, in centimetres. */
+export const DEFAULT_ITEM_SIZE_CM = 10
+
+export interface BoardConfig {
+  /** Width in board pixels (cm × {@link PX_PER_CM}). */
+  width: number
+  /** Height in board pixels (cm × {@link PX_PER_CM}). */
+  height: number
+  background?: string | null
+}
+
+export interface SceneLayer {
+  id: string
+  name: string
+  z: number
+  visible: boolean
+  locked: boolean
+  opacity: number
+}
+
+export interface SceneItem {
+  id: string
+  pieceId: number
+  layerId: string
+  x: number
+  y: number
+  width: number
+  height: number
+  rotation: number
+  /** When set, width/height (cm) are driven by this piece attribute's value (its `attributeName`). */
+  widthAttr?: string | null
+  heightAttr?: string | null
+}
+
+export interface SceneTrack {
+  id: string
+  itemId: string
+  name: string
+}
+
+export type ClipParamValues = Record<string, unknown>
+
+export interface SceneClip {
+  id: string
+  trackId: string
+  pieceTypeActionId: number | null
+  startMs: number
+  durationMs: number
+  paramValues: ClipParamValues
+  label?: string
+}
+
+export interface SceneDocument {
+  schemaVersion: number
+  board: BoardConfig
+  layers: SceneLayer[]
+  items: SceneItem[]
+  tracks: SceneTrack[]
+  clips: SceneClip[]
+  durationMs: number
+  fps?: number
+}
+
+export function emptyDocument(): SceneDocument {
+  return {
+    schemaVersion: SCENE_SCHEMA_VERSION,
+    board: { width: 1280, height: 720, background: null },
+    layers: [{ id: 'layer-1', name: 'Capa 1', z: 0, visible: true, locked: false, opacity: 1 }],
+    items: [],
+    tracks: [],
+    clips: [],
+    durationMs: 60000,
+    fps: 30
+  }
+}
