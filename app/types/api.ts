@@ -120,6 +120,21 @@ export interface PieceTypeResponseDto {
   actions?: PieceTypeActionResponseDto[]
 }
 
+/**
+ * A hardware port (Raspberry Pi GPIO output) declared by the organization and tied to a single
+ * piece type. Assignable to a board item whose piece is of that type. Gated feature: organizations
+ * without it expose no ports.
+ */
+export interface PortResponseDto {
+  id: number
+  name: string
+  pieceTypeId: number
+  pieceTypeName: string | null
+  pin: number | null
+  position: number
+  parameters: ActionParameterDto[]
+}
+
 export interface TimelineResponseDto {
   id: number
   organizationId: number

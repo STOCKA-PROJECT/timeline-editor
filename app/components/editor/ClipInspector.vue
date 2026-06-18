@@ -147,6 +147,24 @@ watch([item, detail], () => {
     if (item.value.height !== px) scene.updateItem(item.value.id, { height: px })
   }
 }, { immediate: true })
+
+// ----- ports (hardware outputs assigned to the item) -----
+/** Ports assignable to the selected item = those whose piece type matches its piece. */
+const compatiblePorts = computed(() => catalog.portsForPiece(piece.value))
+
+function isPortSelected(portId: number): boolean {
+  return (item.value?.ports ?? []).includes(portId)
+}
+
+/** Adds or removes a port id from the item, keeping zero/one/many assignments. */
+function togglePort(portId: number, checked: boolean) {
+  if (!item.value) return
+  const current = item.value.ports ?? []
+  const next = checked
+    ? (current.includes(portId) ? current : [...current, portId])
+    : current.filter(id => id !== portId)
+  scene.updateItem(item.value.id, { ports: next })
+}
 </script>
 
 <template>
@@ -286,6 +304,23 @@ watch([item, detail], () => {
         :value="item.rotation"
         @change="setRotation(Number(($event.target as HTMLInputElement).value))">
     </div>
+
+    <!-- Puertos: salidas hardware asignadas (cero, una o varias) compatibles con el tipo del artículo -->
+    <div class="mt-3 flex flex-col gap-1 border-t border-line pt-3">
+      <span class="text-[11px] font-semibold uppercase tracking-[.08em] text-ink-muted">Puertos</span>
+      <div v-if="compatiblePorts.length" class="flex flex-col gap-1">
+        <label v-for="p in compatiblePorts" :key="p.id" class="flex items-center gap-2 text-[12.5px] text-ink">
+          <input type="checkbox" :checked="isPortSelected(p.id)"
+            @change="togglePort(p.id, ($event.target as HTMLInputElement).checked)">
+          <span class="min-w-0 flex-1 truncate" :title="p.name">{{ p.name }}</span>
+          <span v-if="p.pin != null" class="flex-shrink-0 text-[11px] text-ink-muted">pin {{ p.pin }}</span>
+        </label>
+      </div>
+      <p v-else class="text-[11.5px] text-ink-muted">
+        Este artículo no tiene puertos compatibles.
+      </p>
+    </div>
+
     <p class="mt-3 text-[11.5px] text-ink-muted">
       Haz doble clic en su pista (abajo) para añadir una acción.
     </p>

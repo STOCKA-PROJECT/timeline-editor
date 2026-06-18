@@ -1,9 +1,9 @@
 import { defineStore } from 'pinia'
-import type { Page, PieceListItemDto, PieceResponseDto, PieceTypeActionResponseDto } from '~/types/api'
+import type { Page, PieceListItemDto, PieceResponseDto, PieceTypeActionResponseDto, PortResponseDto } from '~/types/api'
 
 /**
- * Read-only catalog of the organization's articles (pieces) and, lazily, the actions available for
- * each piece type. Backs the piece palette and the clip inspector.
+ * Read-only catalog of the organization's articles (pieces), its hardware ports and, lazily, the
+ * actions available for each piece type. Backs the piece palette and the clip inspector.
  */
 export const useCatalogStore = defineStore('catalog', () => {
   const orgSlug = ref<string | null>(null)
@@ -12,19 +12,45 @@ export const useCatalogStore = defineStore('catalog', () => {
   const actionsByType = ref<Record<number, PieceTypeActionResponseDto[]>>({})
   // Full piece details (with attribute values), loaded lazily when a piece is inspected.
   const pieceDetails = ref<Record<number, PieceResponseDto>>({})
+  // Organization ports (a flat list); empty when the org does not expose the gated ports feature.
+  const ports = ref<PortResponseDto[]>([])
 
   async function load(slug: string) {
     orgSlug.value = slug
     loading.value = true
     try {
       const api = useApi()
-      const page = await api<Page<PieceListItemDto>>(`/organizations/${slug}/pieces`, {
-        query: { size: 200, sort: 'name,asc' }
-      })
+      const [page] = await Promise.all([
+        api<Page<PieceListItemDto>>(`/organizations/${slug}/pieces`, {
+          query: { size: 200, sort: 'name,asc' }
+        }),
+        loadPorts(slug)
+      ])
       pieces.value = page.content ?? []
     } finally {
       loading.value = false
     }
+  }
+
+  /** Loads the org's ports; tolerates the gated-feature 403/404 (orgs without it just get an empty list). */
+  async function loadPorts(slug: string): Promise<void> {
+    try {
+      const api = useApi()
+      ports.value = await api<PortResponseDto[]>(`/organizations/${slug}/ports`)
+    } catch {
+      ports.value = []
+    }
+  }
+
+  function portById(id: number): PortResponseDto | undefined {
+    return ports.value.find(p => p.id === id)
+  }
+
+  /** Ports assignable to a piece = those whose piece type is one of the piece's types. */
+  function portsForPiece(piece: PieceListItemDto | undefined): PortResponseDto[] {
+    if (!piece) return []
+    const typeIds = new Set(piece.pieceTypes.map(t => t.id))
+    return ports.value.filter(p => typeIds.has(p.pieceTypeId))
   }
 
   function pieceById(id: number): PieceListItemDto | undefined {
@@ -98,6 +124,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     pieces.value = []
     actionsByType.value = {}
     pieceDetails.value = {}
+    ports.value = []
   }
 
   return {
@@ -105,6 +132,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     pieces,
     loading,
     actionsByType,
+    ports,
     load,
     pieceById,
     coverUrl,
@@ -113,6 +141,8 @@ export const useCatalogStore = defineStore('catalog', () => {
     ensureActionsForPiece,
     pieceDetailById,
     ensurePieceDetail,
+    portById,
+    portsForPiece,
     reset
   }
 })

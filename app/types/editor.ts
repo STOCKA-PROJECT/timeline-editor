@@ -38,6 +38,12 @@ export interface SceneItem {
   /** When set, width/height (cm) are driven by this piece attribute's value (its `attributeName`). */
   widthAttr?: string | null
   heightAttr?: string | null
+  /**
+   * Ids of the hardware ports assigned to this item (zero, one or many). Only ports whose piece
+   * type matches the item's piece are offered in the UI; the backend rejects cross-organization
+   * ids and tolerates stale ones.
+   */
+  ports?: number[]
 }
 
 export interface SceneTrack {
