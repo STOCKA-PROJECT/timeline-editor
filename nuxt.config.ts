@@ -17,6 +17,21 @@ export default defineNuxtConfig({
     }
   },
 
+  // URLs de producción: van dentro del wrangler.json que Nitro genera en el build de
+  // Cloudflare Workers, así cada deploy las re-aplica. No configurarlas a mano en el
+  // dashboard: `wrangler deploy` ELIMINA las variables de texto añadidas por dashboard.
+  // Solo afecta al deploy en Workers; `nuxt dev` y builds locales las ignoran.
+  nitro: {
+    cloudflare: {
+      wrangler: {
+        vars: {
+          NUXT_API_BASE_URL: 'https://stocka.xeye.es',
+          NUXT_PUBLIC_STOCKA_URL: 'https://stocka.joanmartorellcoll03.workers.dev'
+        }
+      }
+    }
+  },
+
   app: {
     head: {
       title: 'Stocka · Timeline Editor',
