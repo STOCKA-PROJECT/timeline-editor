@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { SceneClip, SceneTrack } from '~/types/editor'
+import type { SceneClip, SceneLayer, SceneTrack } from '~/types/editor'
 
 const scene = useSceneStore()
 const selection = useSelectionStore()
@@ -12,14 +12,53 @@ const lanesRef = ref<HTMLDivElement | null>(null)
 const totalWidth = computed(() => scene.durationMs * pxPerMs.value)
 const seconds = computed(() => Math.ceil(scene.durationMs / 1000))
 
-// Only tracks whose piece has available actions appear in the timeline
-// (also hides tracks of actionless pieces in scenes saved before this rule).
+// ---- layer filter and folders ----
+/**
+ * Tracks shown: those of the selected layers (every layer when none is selected), and only for
+ * pieces with available actions (also hides tracks of actionless pieces in older scenes).
+ */
 const visibleTracks = computed(() =>
   scene.tracks.filter((track) => {
     const item = scene.itemById(track.itemId)
-    return catalog.actionsForPiece(catalog.pieceById(item?.pieceId ?? -1)).length > 0
+    if (!item) return false
+    if (selection.selectedLayerIds.length && !selection.selectedLayerIds.includes(item.layerId)) return false
+    return catalog.actionsForPiece(catalog.pieceById(item.pieceId)).length > 0
   })
 )
+
+interface TrackGroup { layer: SceneLayer, tracks: SceneTrack[] }
+
+/** Visible tracks grouped by layer, topmost layer first (same order as the layers panel). */
+const trackGroups = computed<TrackGroup[]>(() => {
+  const byLayer = new Map<string, SceneTrack[]>()
+  for (const track of visibleTracks.value) {
+    const layerId = scene.itemById(track.itemId)!.layerId
+    if (!byLayer.has(layerId)) byLayer.set(layerId, [])
+    byLayer.get(layerId)!.push(track)
+  }
+  return [...scene.layersByZ].reverse()
+    .filter(layer => byLayer.has(layer.id))
+    .map(layer => ({ layer, tracks: byLayer.get(layer.id)! }))
+})
+
+/** Folders only make sense when tracks of more than one layer are on screen. */
+const showFolders = computed(() => trackGroups.value.length > 1)
+const collapsedLayerIds = ref<string[]>([])
+function isCollapsed(layerId: string): boolean {
+  return collapsedLayerIds.value.includes(layerId)
+}
+function toggleFolder(layerId: string) {
+  collapsedLayerIds.value = isCollapsed(layerId)
+    ? collapsedLayerIds.value.filter(id => id !== layerId)
+    : [...collapsedLayerIds.value, layerId]
+}
+
+/** True when the scene has tracks but the selected layers hide all of them. */
+const hiddenBySelection = computed(() =>
+  visibleTracks.value.length === 0 && selection.selectedLayerIds.length > 0 && scene.tracks.some((track) => {
+    const item = scene.itemById(track.itemId)
+    return !!item && catalog.actionsForPiece(catalog.pieceById(item.pieceId)).length > 0
+  }))
 
 // ---- board <-> timeline selection sync ----
 /** A track is highlighted when its board item is part of the current selection. */
@@ -27,11 +66,13 @@ function isTrackSelected(track: SceneTrack): boolean {
   return selection.selectedItemIds.includes(track.itemId)
 }
 
-// Selecting a board item scrolls its track into view ("focus" in the timeline).
+// Selecting a board item scrolls its track into view ("focus" in the timeline), opening its folder.
 watch(() => selection.selectedItemId, (itemId) => {
   if (!itemId) return
   const track = visibleTracks.value.find(t => t.itemId === itemId)
   if (!track) return
+  const layerId = scene.itemById(itemId)?.layerId
+  if (layerId && isCollapsed(layerId)) toggleFolder(layerId)
   nextTick(() => {
     lanesRef.value
       ?.querySelector(`[data-track-id="${track.id}"]`)
@@ -175,50 +216,78 @@ function selectTrackItem(track: SceneTrack) {
           </div>
         </div>
 
-        <!-- Track rows: label + lane share the same row, always aligned -->
-        <div
-          v-for="track in visibleTracks"
-          :key="track.id"
-          :data-track-id="track.id"
-          class="flex h-10 border-b border-line/60">
-          <div
-            class="sticky left-0 z-20 flex h-full flex-shrink-0 cursor-pointer items-center gap-1 truncate border-r border-line px-2 text-[12px]"
-            :class="isTrackSelected(track) ? 'bg-accent-soft font-medium text-accent-ink' : 'bg-bg-card text-ink hover:bg-bg-soft'"
-            :style="{ width: labelW + 'px' }"
-            role="button"
-            tabindex="0"
-            :title="'Selecciona «' + trackItemName(track) + '» al tauler'"
-            @click="selectTrackItem(track)"
-            @keydown.enter.prevent="selectTrackItem(track)"
-            @keydown.space.prevent="selectTrackItem(track)">
-            <span class="truncate">{{ trackItemName(track) }}</span>
-            <!-- Same splitter on every row so the column can be resized from anywhere along its edge -->
+        <template v-for="group in trackGroups" :key="group.layer.id">
+          <!-- Folder header: one per layer when tracks of several layers are shown -->
+          <div v-if="showFolders" class="flex h-7 border-b border-line" :data-layer-id="group.layer.id">
             <div
-              class="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-accent/40"
-              @pointerdown.stop="labels.startDrag"
-              @click.stop
-              @dblclick.stop="resetLabelWidth" />
+              class="sticky left-0 z-20 flex h-full flex-shrink-0 cursor-pointer items-center gap-1.5 truncate border-r border-line bg-bg-soft px-2 text-[11px] font-semibold uppercase tracking-[.08em] text-ink-muted hover:text-ink"
+              :style="{ width: labelW + 'px' }"
+              role="button"
+              tabindex="0"
+              :title="(isCollapsed(group.layer.id) ? 'Desplega' : 'Plega') + ' la capa «' + group.layer.name + '»'"
+              @click="toggleFolder(group.layer.id)"
+              @keydown.enter.prevent="toggleFolder(group.layer.id)"
+              @keydown.space.prevent="toggleFolder(group.layer.id)">
+              <span class="w-3 flex-shrink-0 text-center text-[10px]">{{ isCollapsed(group.layer.id) ? '▸' : '▾' }}</span>
+              <span class="truncate">{{ group.layer.name }}</span>
+              <span class="ml-auto flex-shrink-0 font-normal normal-case tracking-normal">{{ group.tracks.length }}</span>
+              <div
+                class="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-accent/40"
+                @pointerdown.stop="labels.startDrag"
+                @click.stop
+                @dblclick.stop="resetLabelWidth" />
+            </div>
+            <div class="min-w-0 flex-1 bg-bg-soft/60" />
           </div>
+
+          <!-- Track rows: label + lane share the same row, always aligned -->
           <div
-            class="relative h-full min-w-0 flex-1"
-            :class="isTrackSelected(track) ? 'bg-accent-soft/20' : ''"
-            @dblclick="onLaneDblClick(track, $event)">
+            v-for="track in (showFolders && isCollapsed(group.layer.id) ? [] : group.tracks)"
+            :key="track.id"
+            :data-track-id="track.id"
+            class="flex h-10 border-b border-line/60">
             <div
-              v-for="clip in scene.clipsForTrack(track.id)"
-              :key="clip.id"
-              class="absolute top-1 flex h-8 cursor-grab items-center overflow-hidden rounded-[6px] border text-[11px] text-accent-ink"
-              :class="selection.selectedClipId === clip.id ? 'border-accent bg-accent-soft ring-1 ring-accent' : 'border-accent/50 bg-accent-soft/70'"
-              :style="{ left: clipLeft(clip) + 'px', width: clipWidth(clip) + 'px' }"
-              @pointerdown="startClipDrag(clip, $event, 'move')">
-              <span class="truncate px-1.5">{{ clipLabel(clip) }}</span>
-              <span
-                class="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize bg-accent/40"
-                @pointerdown="startClipDrag(clip, $event, 'resize')" />
+              class="sticky left-0 z-20 flex h-full flex-shrink-0 cursor-pointer items-center gap-1 truncate border-r border-line px-2 text-[12px]"
+              :class="isTrackSelected(track) ? 'bg-accent-soft font-medium text-accent-ink' : 'bg-bg-card text-ink hover:bg-bg-soft'"
+              :style="{ width: labelW + 'px' }"
+              role="button"
+              tabindex="0"
+              :title="'Selecciona «' + trackItemName(track) + '» al tauler'"
+              @click="selectTrackItem(track)"
+              @keydown.enter.prevent="selectTrackItem(track)"
+              @keydown.space.prevent="selectTrackItem(track)">
+              <span class="truncate">{{ trackItemName(track) }}</span>
+              <!-- Same splitter on every row so the column can be resized from anywhere along its edge -->
+              <div
+                class="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-accent/40"
+                @pointerdown.stop="labels.startDrag"
+                @click.stop
+                @dblclick.stop="resetLabelWidth" />
+            </div>
+            <div
+              class="relative h-full min-w-0 flex-1"
+              :class="isTrackSelected(track) ? 'bg-accent-soft/20' : ''"
+              @dblclick="onLaneDblClick(track, $event)">
+              <div
+                v-for="clip in scene.clipsForTrack(track.id)"
+                :key="clip.id"
+                class="absolute top-1 flex h-8 cursor-grab items-center overflow-hidden rounded-[6px] border text-[11px] text-accent-ink"
+                :class="selection.selectedClipId === clip.id ? 'border-accent bg-accent-soft ring-1 ring-accent' : 'border-accent/50 bg-accent-soft/70'"
+                :style="{ left: clipLeft(clip) + 'px', width: clipWidth(clip) + 'px' }"
+                @pointerdown="startClipDrag(clip, $event, 'move')">
+                <span class="truncate px-1.5">{{ clipLabel(clip) }}</span>
+                <span
+                  class="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize bg-accent/40"
+                  @pointerdown="startClipDrag(clip, $event, 'resize')" />
+              </div>
             </div>
           </div>
-        </div>
+        </template>
 
-        <p v-if="visibleTracks.length === 0" class="p-2 text-[11.5px] text-ink-muted">
+        <p v-if="hiddenBySelection" class="p-2 text-[11.5px] text-ink-muted">
+          Les capes seleccionades no tenen cap article amb accions. Tria una altra capa al panell de capes (Ctrl/Maj+clic per afegir-ne més).
+        </p>
+        <p v-else-if="visibleTracks.length === 0" class="p-2 text-[11.5px] text-ink-muted">
           Afegeix articles amb accions al tauler per veure les seves pistes.
         </p>
 

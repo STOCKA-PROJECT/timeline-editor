@@ -7,14 +7,24 @@ const selection = useSelectionStore()
 // Top of the list = topmost layer (highest z).
 const orderedTopFirst = computed(() => [...scene.layersByZ].reverse())
 
-/** Makes a layer active and selects all of its board items (so they highlight together). */
-function activateLayer(layer: SceneLayer) {
-  selection.setActiveLayer(layer.id)
-  selection.selectItems(scene.items.filter(i => i.layerId === layer.id).map(i => i.id))
+/**
+ * Selects a layer and the board items of every selected layer (so they highlight together).
+ * Ctrl/Cmd or Shift + click adds the layer to (or removes it from) the current selection; the
+ * timeline shows only the tracks of the selected layers.
+ */
+function activateLayer(layer: SceneLayer, e?: MouseEvent) {
+  if (e && (e.ctrlKey || e.metaKey || e.shiftKey)) selection.toggleLayer(layer.id)
+  else selection.setActiveLayer(layer.id)
+  selection.selectItems(scene.items.filter(i => selection.isLayerSelected(i.layerId)).map(i => i.id))
 }
 
 function addLayer() {
   activateLayer(scene.addLayer())
+}
+
+function removeLayer(layer: SceneLayer) {
+  scene.removeLayer(layer.id)
+  if (!scene.layerById(layer.id)) selection.dropLayer(layer.id)
 }
 
 // ----- inline rename -----
@@ -61,7 +71,7 @@ function cancelRename() {
 <template>
   <section class="panel flex min-h-0 flex-1 flex-col">
     <div class="flex items-center justify-between">
-      <div class="panel-title">Capas</div>
+      <div class="panel-title" title="Ctrl+clic o Maj+clic per seleccionar diverses capes">Capes</div>
       <button class="btn !h-7 !px-2 !text-[12px] mr-2" @click="addLayer">
         + Capa
       </button>
@@ -72,11 +82,11 @@ function cancelRename() {
           v-for="layer in orderedTopFirst"
           :key="layer.id"
           class="flex items-center gap-1.5 rounded-[8px] border px-2 py-1.5"
-          :class="selection.activeLayerId === layer.id ? 'border-accent bg-accent-soft' : 'border-line bg-bg-card'">
+          :class="selection.isLayerSelected(layer.id) ? 'border-accent bg-accent-soft' : 'border-line bg-bg-card'">
           <button
             type="button"
             class="text-[13px]"
-            :title="layer.visible ? 'Ocultar' : 'Mostrar'"
+            :title="layer.visible ? 'Amaga' : 'Mostra'"
             @click="scene.updateLayer(layer.id, { visible: !layer.visible })">
             {{ layer.visible ? '👁' : '🚫' }}
           </button>
@@ -93,20 +103,20 @@ function cancelRename() {
             v-else
             type="button"
             class="min-w-0 flex-1 truncate text-left text-[12.5px] text-ink"
-            title="Doble clic para renombrar"
-            @click="activateLayer(layer)"
+            title="Clic per seleccionar (Ctrl/Maj+clic per afegir-la a la selecció); doble clic per reanomenar"
+            @click="activateLayer(layer, $event)"
             @dblclick="startRename(layer)">
             {{ layer.name }}
           </button>
           <div class="flex items-center gap-0.5 text-ink-muted">
-            <button v-if="editingId !== layer.id" class="px-1 text-[12px]" title="Renombrar"
+            <button v-if="editingId !== layer.id" class="px-1 text-[12px]" title="Reanomena"
               @click="startRename(layer)">✏️</button>
-            <button class="px-1 text-[12px] disabled:opacity-30" title="Subir"
+            <button class="px-1 text-[12px] disabled:opacity-30" title="Puja"
               @click="scene.moveLayer(layer.id, 1)">▲</button>
-            <button class="px-1 text-[12px] disabled:opacity-30" title="Bajar"
+            <button class="px-1 text-[12px] disabled:opacity-30" title="Baixa"
               @click="scene.moveLayer(layer.id, -1)">▼</button>
-            <button class="px-1 text-[12px] text-danger disabled:opacity-30" title="Eliminar"
-              :disabled="scene.layers.length <= 1" @click="scene.removeLayer(layer.id)">✕</button>
+            <button class="px-1 text-[12px] text-danger disabled:opacity-30" title="Elimina"
+              :disabled="scene.layers.length <= 1" @click="removeLayer(layer)">✕</button>
           </div>
         </li>
       </ul>
