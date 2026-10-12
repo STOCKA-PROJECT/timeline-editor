@@ -34,7 +34,7 @@ const staticDurationSeconds = computed(() => {
   return Number.isFinite(n) && n > 0 ? n : null
 })
 const durationLabel = computed(() =>
-  durationParam.value ? `${durationParam.value.displayName} (s)` : 'Duración (s)')
+  durationParam.value ? `${durationParam.value.displayName} (s)` : 'Durada (s)')
 
 // Keep the clip length in sync with a static duration parameter (fixed by the type).
 watch([clip, staticDurationSeconds, durationIsStatic], () => {
@@ -152,8 +152,20 @@ watch([item, detail], () => {
 /** Ports assignable to the selected item = those whose piece type matches its piece. */
 const compatiblePorts = computed(() => catalog.portsForPiece(piece.value))
 
+/**
+ * Port ids still assigned to the item that no longer exist in the organization (deleted after the
+ * scene was saved). Only computed once the ports request succeeded, so a failed load never shows
+ * every assignment as stale. Export refuses the scene until they are removed.
+ */
+const stalePortIds = computed(() =>
+  catalog.portsLoaded ? (item.value?.ports ?? []).filter(id => !catalog.portById(id)) : [])
+
 function isPortSelected(portId: number): boolean {
   return (item.value?.ports ?? []).includes(portId)
+}
+
+function removePort(portId: number) {
+  togglePort(portId, false)
 }
 
 /** Adds or removes a port id from the item, keeping zero/one/many assignments. */
@@ -173,28 +185,28 @@ function togglePort(portId: number, checked: boolean) {
     <div class="flex items-center justify-between">
       <h2 class="text-[13px] font-semibold text-ink">Clip</h2>
       <button class="btn btn-danger !h-7 !px-2 !text-[12px]" @click="scene.removeClip(clip.id); selection.selectClip(null)">
-        Eliminar
+        Elimina
       </button>
     </div>
-    <p class="mt-0.5 text-[12px] text-ink-muted">{{ piece?.name ?? 'Artículo' }}</p>
+    <p class="mt-0.5 text-[12px] text-ink-muted">{{ piece?.name ?? 'Article' }}</p>
 
     <div class="mt-3 flex flex-col gap-3">
       <div class="flex flex-col gap-1">
-        <label class="text-[12px] font-medium text-ink-soft">Acción</label>
+        <label class="text-[12px] font-medium text-ink-soft">Acció</label>
         <select class="field" :value="clip.pieceTypeActionId ?? ''"
           @change="setAction(Number(($event.target as HTMLSelectElement).value))">
           <!-- Clips saved without an action keep a blank value until a real action is picked. -->
-          <option v-if="clip.pieceTypeActionId == null" value="" disabled>Selecciona una acción</option>
+          <option v-if="clip.pieceTypeActionId == null" value="" disabled>Selecciona una acció</option>
           <option v-for="a in actions" :key="a.id" :value="a.id">{{ a.displayName }}</option>
         </select>
         <p v-if="actions.length === 0" class="text-[11.5px] text-ink-muted">
-          Este artículo no tiene acciones disponibles.
+          Aquest article no té cap acció disponible.
         </p>
       </div>
 
       <div class="grid grid-cols-2 gap-2">
         <div class="flex flex-col gap-1">
-          <label class="text-[12px] font-medium text-ink-soft">Inicio (s)</label>
+          <label class="text-[12px] font-medium text-ink-soft">Inici (s)</label>
           <input class="field" type="number" step="0.05" min="0" :value="(clip.startMs / 1000).toFixed(2)"
             @change="setStartSec(Number(($event.target as HTMLInputElement).value))">
         </div>
@@ -208,12 +220,12 @@ function togglePort(portId: number, checked: boolean) {
       </div>
       <p v-if="durationParam" class="-mt-1 text-[11px] text-ink-muted">
         {{ durationIsStatic
-          ? 'Duración fija definida en el tipo de artículo.'
-          : 'Este tiempo define la longitud del clip.' }}
+          ? 'Durada fixa definida al tipus d\'article.'
+          : 'Aquest temps defineix la longitud del clip.' }}
       </p>
 
       <div v-if="dynamicParams.length" class="flex flex-col gap-3 border-t border-line pt-3">
-        <span class="text-[11px] font-semibold uppercase tracking-[.08em] text-ink-muted">Parámetros</span>
+        <span class="text-[11px] font-semibold uppercase tracking-[.08em] text-ink-muted">Paràmetres</span>
         <EditorActionParameterInput
           v-for="param in dynamicParams"
           :key="param.name"
@@ -223,14 +235,14 @@ function togglePort(portId: number, checked: boolean) {
       </div>
 
       <div v-if="staticParams.length" class="flex flex-col gap-2 border-t border-line pt-3">
-        <span class="text-[11px] font-semibold uppercase tracking-[.08em] text-ink-muted">Valores fijos</span>
+        <span class="text-[11px] font-semibold uppercase tracking-[.08em] text-ink-muted">Valors fixos</span>
         <dl class="flex flex-col gap-1 text-[12px]">
           <div v-for="param in staticParams" :key="param.name" class="flex items-center justify-between gap-2">
             <dt class="text-ink-soft">{{ param.displayName }}</dt>
             <dd class="truncate text-right text-ink" :title="formatStatic(param)">{{ formatStatic(param) }}</dd>
           </div>
         </dl>
-        <p class="text-[11px] text-ink-muted">Estos valores se definen en el tipo de artículo.</p>
+        <p class="text-[11px] text-ink-muted">Aquests valors es defineixen al tipus d'article.</p>
       </div>
     </div>
   </section>
@@ -238,16 +250,16 @@ function togglePort(portId: number, checked: boolean) {
   <!-- Item selected (no clip) -->
   <section v-else-if="item" class="panel p-3">
     <div class="flex items-center justify-between">
-      <h2 class="text-[13px] font-semibold text-ink">Artículo</h2>
+      <h2 class="text-[13px] font-semibold text-ink">Article</h2>
       <button class="btn btn-danger !h-7 !px-2 !text-[12px]" @click="scene.removeItem(item.id); selection.selectItem(null)">
-        Quitar
+        Treu
       </button>
     </div>
     <p class="mt-0.5 text-[12px] text-ink">{{ piece?.name ?? ('#' + item.pieceId) }}</p>
 
     <!-- Width: manual cm or driven by a numeric attribute -->
     <div class="mt-3 flex flex-col gap-1">
-      <label class="text-[12px] font-medium text-ink-soft">Ancho (cm)</label>
+      <label class="text-[12px] font-medium text-ink-soft">Amplada (cm)</label>
       <div class="flex gap-2">
         <select class="field min-w-0 flex-1"
           :value="item.widthAttr ?? ''"
@@ -266,7 +278,7 @@ function togglePort(portId: number, checked: boolean) {
 
     <!-- Height: manual cm or driven by a numeric attribute -->
     <div class="mt-2 flex flex-col gap-1">
-      <label class="text-[12px] font-medium text-ink-soft">Alto (cm)</label>
+      <label class="text-[12px] font-medium text-ink-soft">Alçada (cm)</label>
       <div class="flex gap-2">
         <select class="field min-w-0 flex-1"
           :value="item.heightAttr ?? ''"
@@ -283,7 +295,7 @@ function togglePort(portId: number, checked: boolean) {
       </div>
     </div>
     <p v-if="item.widthAttr || item.heightAttr" class="mt-1 text-[11px] text-ink-muted">
-      Las dimensiones marcadas se toman del atributo del artículo.
+      Les dimensions marcades es prenen de l'atribut de l'article.
     </p>
     <div class="mt-2 grid grid-cols-2 gap-2">
       <div class="flex flex-col gap-1">
@@ -300,15 +312,15 @@ function togglePort(portId: number, checked: boolean) {
       </div>
     </div>
     <div class="mt-2 flex flex-col gap-1">
-      <label class="text-[12px] font-medium text-ink-soft">Rotación (°)</label>
+      <label class="text-[12px] font-medium text-ink-soft">Rotació (°)</label>
       <input class="field" type="number" step="1"
         :value="item.rotation"
         @change="setRotation(Number(($event.target as HTMLInputElement).value))">
     </div>
 
-    <!-- Puertos: salidas hardware asignadas (cero, una o varias) compatibles con el tipo del artículo -->
+    <!-- Ports: sortides de maquinari assignades (cap, una o diverses) compatibles amb el tipus de l'article -->
     <div class="mt-3 flex flex-col gap-1 border-t border-line pt-3">
-      <span class="text-[11px] font-semibold uppercase tracking-[.08em] text-ink-muted">Puertos</span>
+      <span class="text-[11px] font-semibold uppercase tracking-[.08em] text-ink-muted">Ports</span>
       <div v-if="compatiblePorts.length" class="flex flex-col gap-1">
         <label v-for="p in compatiblePorts" :key="p.id" class="flex items-center gap-2 text-[12.5px] text-ink">
           <input type="checkbox" :checked="isPortSelected(p.id)"
@@ -318,17 +330,27 @@ function togglePort(portId: number, checked: boolean) {
         </label>
       </div>
       <p v-else class="text-[11.5px] text-ink-muted">
-        Este artículo no tiene puertos compatibles.
+        Aquest article no té cap port compatible.
       </p>
+
+      <!-- Assignments to ports deleted after the scene was saved: export refuses them until removed -->
+      <div v-if="stalePortIds.length" class="mt-1 flex flex-col gap-1 rounded-[6px] border border-danger-soft bg-danger-soft p-2">
+        <span class="text-[11px] font-semibold text-danger">Ports que ja no existeixen</span>
+        <div v-for="id in stalePortIds" :key="'stale' + id" class="flex items-center gap-2 text-[12.5px] text-ink">
+          <span class="min-w-0 flex-1 truncate">Port {{ id }} (eliminat)</span>
+          <button class="btn btn-danger !h-6 !px-2 !text-[11px]" @click="removePort(id)">Treu</button>
+        </div>
+        <p class="text-[11px] text-ink-muted">Treu-los i marca el port nou de la llista de dalt.</p>
+      </div>
     </div>
 
     <p class="mt-3 text-[11.5px] text-ink-muted">
-      Haz doble clic en su pista (abajo) para añadir una acción.
+      Fes doble clic a la seva pista (a baix) per afegir una acció.
     </p>
   </section>
 
   <!-- Nothing selected -->
   <section v-else class="panel p-4 text-center text-[12.5px] text-ink-muted">
-    Selecciona un artículo del tablero o un clip de la línea de tiempo para editarlo.
+    Selecciona un article del tauler o un clip de la línia de temps per editar-lo.
   </section>
 </template>

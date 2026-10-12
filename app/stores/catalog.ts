@@ -14,6 +14,8 @@ export const useCatalogStore = defineStore('catalog', () => {
   const pieceDetails = ref<Record<number, PieceResponseDto>>({})
   // Organization ports (a flat list); empty when the org does not expose the gated ports feature.
   const ports = ref<PortResponseDto[]>([])
+  // True once the ports request succeeded: only then can a missing port id be called stale.
+  const portsLoaded = ref(false)
 
   async function load(slug: string) {
     orgSlug.value = slug
@@ -37,8 +39,10 @@ export const useCatalogStore = defineStore('catalog', () => {
     try {
       const api = useApi()
       ports.value = await api<PortResponseDto[]>(`/organizations/${slug}/ports`)
+      portsLoaded.value = true
     } catch {
       ports.value = []
+      portsLoaded.value = false
     }
   }
 
@@ -133,6 +137,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     actionsByType.value = {}
     pieceDetails.value = {}
     ports.value = []
+    portsLoaded.value = false
   }
 
   return {
@@ -141,6 +146,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     loading,
     actionsByType,
     ports,
+    portsLoaded,
     load,
     pieceById,
     coverUrl,
