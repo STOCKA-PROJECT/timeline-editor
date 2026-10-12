@@ -98,6 +98,14 @@ describe('validateShowPackage', () => {
     expect(codes(pkg(), 'error')).not.toContain('E_SEGMENT_RANGE')
   })
 
+  it('a strip is a whole-strip target with the LED actions and its own range', () => {
+    const ok = pkg(p => { p.timeline.push({ t: 1000, target: 'LedStrip4', action: 'fill', params: { color: [1, 2, 3], first: 0, last: 43 } }) })
+    expect(codes(ok, 'error')).toEqual([])
+    const bad = pkg(p => { p.timeline.push({ t: 2000, target: 'LedStrip4', action: 'animate', params: { animation_type: 'fire', first: 0, last: 44 } }) })
+    expect(codes(bad)).toContain('E_SEGMENT_RANGE')
+    expect(codes(pkg(p => { p.timeline.push({ t: 1000, target: 'LedStrip4', action: 'turn_on', params: {} }) }))).toContain('E_ACTION_UNKNOWN')
+  })
+
   it('config: required keys and types, unknown kind', () => {
     expect(codes(pkg(p => { delete p.hardware.LedStrip3!.length }))).toContain('E_CONFIG_INVALID')
     expect(codes(pkg(p => { p.hardware.LedStrip3!.dma = '10' }))).toContain('E_CONFIG_INVALID')

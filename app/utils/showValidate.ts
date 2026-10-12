@@ -119,8 +119,10 @@ export function validateShowPackage(pkg: ShowPackage, catalog: OutputCatalog = d
   }
 
   // --- segments ----------------------------------------------------------------------------
+  // Whole strips are show targets too (fill/animate on the entire strip): their length bounds first/last.
   const segmentLength = new Map<string, number>()
   for (const [name, entry] of Object.entries(hardware)) {
+    if (entry.kind === 'led_strip' && typeof entry.length === 'number') segmentLength.set(name, entry.length)
     if (entry.kind !== 'led_segment') continue
     const strip = hardware[String(entry.strip)]
     if (!strip || strip.kind !== 'led_strip') {
@@ -185,11 +187,11 @@ export function validateShowPackage(pkg: ShowPackage, catalog: OutputCatalog = d
       if (!(pname in params)) issues.push(issue('error', 'E_PARAM_REQUIRED', `${where}: falta el paràmetre obligatori «${pname}».`, { port: ev.target }))
     }
     const segLen = segmentLength.get(ev.target)
-    if (entry.kind === 'led_segment' && segLen !== undefined) {
+    if ((entry.kind === 'led_segment' || entry.kind === 'led_strip') && segLen !== undefined) {
       for (const key of ['first', 'last'] as const) {
         const v = params[key]
         if (typeof v === 'number' && !(v >= 0 && v < segLen)) {
-          issues.push(issue('error', 'E_SEGMENT_RANGE', `${where}: «${key}»=${v} surt del segment «${ev.target}» (0–${segLen - 1}).`, { port: ev.target }))
+          issues.push(issue('error', 'E_SEGMENT_RANGE', `${where}: «${key}»=${v} surt de «${ev.target}» (0–${segLen - 1}).`, { port: ev.target }))
         }
       }
     }

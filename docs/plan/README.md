@@ -79,20 +79,21 @@ Cada puerto de Stocka pasa a tener un `kind` cerrado. Las acciones y parámetros
 
 | `kind` | Controlador | Configuración del puerto | Acciones y parámetros |
 |---|---|---|---|
-| `relay` | `RelayController` | `pin` (GPIO BCM o `exp1:n` a partir de la fase 4), `activeLow` | `turn_on(time?)`, `turn_off(time?)`, `focoOn(hold_time?)`, `focoOff(hold_time?, pulse_delay?)` |
-| `led_strip` | `LedsController` | `pin`, `dma`, `channel`, `pixels`, `brightness` | `setBrightness(brightness)`, `clear()` |
-| `led_segment` | `LedsController` | `strip` (nombre de un `led_strip`), `first`, `last` | `fill(color)`, `fade(color, duration)`, `animate(animation_type, color?, from_color?, duration?, speed?, intensity?)`, `clear()` |
-| `motor` | `AngelController` | `pinR`, `pinL`, `sensorPin`, `maxUpTime` | `start_up(time?, up_time?)`, `start_down(time?)`, `stop()` |
+| `relay` | `RelayController` | `pin` (GPIO BCM; `exp1:n` a partir de la fase 4) | `turn_on(time?)`, `turn_off(time?)`, `focoOn(hold_time?)`, `focoOff(hold_time?, pulse_delay?)` |
+| `led_strip` | `LedsController` | `pin` (12, 13, 18, 19, 10 o 21), `dma`, `channel`, `length`, `brightness?`, `freq_hz?`, `invert?` | `fill(color, first?, last?)`, `clear()`, `animate(animation_type, …)`, `setBrightness(brightness)`. Infraestructura: el tipo de pieza es opcional; con tipo, la tira entera es un objetivo de show |
+| `led_segment` | `LedsController` | `strip` (nombre de un `led_strip`), `first`, `last` (rango inverso permitido) | `fill(color, first?, last?)`, `clear()`, `animate(animation_type, first?, last?, duration?, + parámetros de la animación: `color`, `from_color`, `speed`, `intensity`, …)`. No hay acción `fade`: es `animate` con `animation_type: fade` |
+| `motor` | `AngelController` | `pinR`, `pinL`, `sensorPin`, `downTime` | `start_up(time?)`, `start_down(time?)`, `stop()` |
 | `audio` | `AudioController` | — | `play(audio_name, time?)`, `stop()` |
 | `video` | `VideoController` | — | `play(video_name)`, `stop()` |
-| `button` (entrada) | `ButtonController` | `pin`, `mode` (`once`, `loop`, `pulse`), `cycles` | — |
+| `button` (entrada) | `ButtonController` | `pin` (infraestructura, sin tipo de pieza; el `mode` va en el paquete) | — |
 
 Reglas:
 
 - Un tipo de pieza declara qué `kind` controla. Sus acciones se eligen del catálogo de ese `kind`, con el nombre fijo; lo que sigue siendo libre es el nombre visible, qué parámetros son `dynamic` y cuál es `isDuration`.
 - El parámetro `isDuration` del editor se vuelca en `time` o `duration` según la acción.
 - Una acción que no esté en el catálogo del `kind` del puerto es un error de validación en el backend y en el editor, no un aviso en el log de la RPi.
-- `animation_type` admite los nombres que ya existen en `LedsController`: `stars`, `fire`, `window_light`, `candle`, `sunrise`, `sunset`, `moonlight`, `clouds`, `shooting_star`, `aurora`, `snow`.
+- `animation_type` admite los nombres que ya existen en `LedsController`: `stars`, `fire`, `window_light`, `candle`, `sunrise`, `sunset`, `moonlight`, `clouds`, `shooting_star`, `aurora`, `snow` y `fade`.
+- `first`/`last` de `fill` y `animate` son relativos al objetivo (0 = primer LED del segmento o de la tira).
 
 ### 4.2 Paquete de show (`stocka-show` v2)
 
@@ -106,11 +107,11 @@ Un único JSON. Lo genera el editor a partir del plan de ejecución y lo valida 
   "board": "rpi4b",
   "mode": { "on": "pulse", "cycles": 1 },
   "hardware": {
-    "LedStrip3":   { "kind": "led_strip",   "pin": 13, "dma": 10, "channel": 1, "pixels": 300 },
+    "LedStrip3":   { "kind": "led_strip",   "pin": 13, "dma": 10, "channel": 1, "length": 300 },
     "Fondo1":      { "kind": "led_segment", "strip": "LedStrip3", "first": 0, "last": 148 },
     "Focos":       { "kind": "relay",       "pin": 27 },
     "Sembra":      { "kind": "relay",       "pin": 26 },
-    "Angel":       { "kind": "motor",       "pinR": 3, "pinL": 4, "sensorPin": 7, "maxUpTime": 18 },
+    "Angel":       { "kind": "motor",       "pinR": 3, "pinL": 4, "sensorPin": 7, "downTime": 18 },
     "Audio":       { "kind": "audio" },
     "Pulsador":    { "kind": "button",      "pin": 20 }
   },
@@ -129,13 +130,13 @@ Un único JSON. Lo genera el editor a partir del plan de ejecución y lo valida 
 
 Decisiones de formato:
 
-- **No hay acción `fade`**: es `animate` con `animation_type: "fade"` (el método `fade` del controlador es un wrapper deprecado sin `first/last`). Los `first/last` de `fill` y `animate` son **relativos al segmento**.
+- **No hay acción `fade`**: es `animate` con `animation_type: "fade"` (el método `fade` del controlador es un wrapper deprecado sin `first/last`). Los `first/last` de `fill` y `animate` son **relativos al objetivo** (segmento o tira entera).
 - **`target` es el nombre del puerto** en Stocka, único por organización. Es el mismo valor que hoy usa `rpi4-system` como `name`, así que el cargador no necesita tabla de traducción.
 - **Tiempos en milisegundos enteros** en el paquete (`t`, `durationMs`), que es lo que usa el editor. El cargador convierte a segundos para los controladores. Los parámetros `time`, `duration` y `hold_time` se mantienen en segundos porque así los esperan los controladores.
 - **`hardware` sustituye a `config.pins` y `config.leds`** del formato actual. Los segmentos van al mismo nivel que las tiras, cada uno con su `kind`.
 - **`mode` sustituye a `mode_on` y `cicles`.**
 - Los ficheros de audio y vídeo viajan aparte (fase 3) y se comprueba que existen antes de activar.
-- `meta.hash` es el SHA-256 del paquete sin el propio campo `hash`. Mismo show, mismo hash.
+- `meta.hash` es `sha256:` + SHA-256 del JSON canónico de `{board, mode, hardware, timeline, durationMs, assets}` (`meta` queda fuera). Mismo show, mismo hash.
 
 ### 4.3 Semántica de tiempo
 
