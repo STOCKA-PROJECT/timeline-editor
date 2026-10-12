@@ -48,13 +48,13 @@ function clipLeft(c: SceneClip) { return c.startMs * pxPerMs.value }
 function clipWidth(c: SceneClip) { return Math.max(6, c.durationMs * pxPerMs.value) }
 
 function clipLabel(c: SceneClip): string {
-  if (c.pieceTypeActionId == null) return 'Sin acción'
+  if (c.pieceTypeActionId == null) return 'Sense acció'
   // Try to resolve a display name from the catalog of the clip's item.
   const track = scene.trackById(c.trackId)
   const item = track ? scene.itemById(track.itemId) : undefined
   const action = catalog.actionsForPiece(catalog.pieceById(item?.pieceId ?? -1))
     .find(a => a.id === c.pieceTypeActionId)
-  return action?.displayName ?? c.label ?? 'Acción'
+  return action?.displayName ?? c.label ?? 'Acció'
 }
 
 // ---- add clip ----
@@ -113,7 +113,21 @@ function onRulerPointerDown(e: PointerEvent) {
   window.addEventListener('pointerup', onUp)
 }
 
-const LABEL_W = 168
+// ---- label column ----
+const LABEL_W_DEFAULT = 168
+/** Width of the sticky label column: draggable from the splitter on its right edge and persisted. */
+const labels = usePaneSize('timeline-labels', LABEL_W_DEFAULT, { min: 96, max: 480, axis: 'x', dir: 1 })
+const labelW = computed(() => labels.size.value)
+
+function resetLabelWidth() {
+  labels.size.value = LABEL_W_DEFAULT
+  try { localStorage.setItem('tle:pane:timeline-labels', String(LABEL_W_DEFAULT)) } catch { /* private mode */ }
+}
+
+/** Clicking a track label selects its whole piece on the board (and clears any clip selection). */
+function selectTrackItem(track: SceneTrack) {
+  selection.selectItem(track.itemId)
+}
 </script>
 
 <template>
@@ -131,12 +145,18 @@ const LABEL_W = 168
     <!-- Single scroll container: labels stay sticky-left and the ruler sticky-top,
          so name and lane always share the same row while scrolling in any direction. -->
     <div ref="lanesRef" class="relative min-h-0 flex-1 overflow-auto">
-      <div class="relative" :style="{ width: LABEL_W + totalWidth + 'px', minWidth: '100%' }">
+      <div class="relative" :style="{ width: labelW + totalWidth + 'px', minWidth: '100%' }">
         <!-- Header row -->
         <div class="sticky top-0 z-30 flex">
           <div
             class="sticky left-0 z-10 h-6 flex-shrink-0 border-b border-r border-line bg-bg-soft"
-            :style="{ width: LABEL_W + 'px' }" />
+            :style="{ width: labelW + 'px' }">
+            <div
+              class="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-accent/40"
+              title="Arrossega per canviar l'amplada; doble clic per restablir-la"
+              @pointerdown="labels.startDrag"
+              @dblclick="resetLabelWidth" />
+          </div>
           <div
             class="relative h-6 min-w-0 flex-1 cursor-ew-resize border-b border-line bg-bg-soft"
             @pointerdown="onRulerPointerDown">
@@ -162,10 +182,22 @@ const LABEL_W = 168
           :data-track-id="track.id"
           class="flex h-10 border-b border-line/60">
           <div
-            class="sticky left-0 z-20 flex h-full flex-shrink-0 items-center gap-1 truncate border-r border-line px-2 text-[12px]"
-            :class="isTrackSelected(track) ? 'bg-accent-soft font-medium text-accent-ink' : 'bg-bg-card text-ink'"
-            :style="{ width: LABEL_W + 'px' }">
+            class="sticky left-0 z-20 flex h-full flex-shrink-0 cursor-pointer items-center gap-1 truncate border-r border-line px-2 text-[12px]"
+            :class="isTrackSelected(track) ? 'bg-accent-soft font-medium text-accent-ink' : 'bg-bg-card text-ink hover:bg-bg-soft'"
+            :style="{ width: labelW + 'px' }"
+            role="button"
+            tabindex="0"
+            :title="'Selecciona «' + trackItemName(track) + '» al tauler'"
+            @click="selectTrackItem(track)"
+            @keydown.enter.prevent="selectTrackItem(track)"
+            @keydown.space.prevent="selectTrackItem(track)">
             <span class="truncate">{{ trackItemName(track) }}</span>
+            <!-- Same splitter on every row so the column can be resized from anywhere along its edge -->
+            <div
+              class="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-accent/40"
+              @pointerdown.stop="labels.startDrag"
+              @click.stop
+              @dblclick.stop="resetLabelWidth" />
           </div>
           <div
             class="relative h-full min-w-0 flex-1"
@@ -187,13 +219,13 @@ const LABEL_W = 168
         </div>
 
         <p v-if="visibleTracks.length === 0" class="p-2 text-[11.5px] text-ink-muted">
-          Añade artículos con acciones al tablero para ver sus pistas.
+          Afegeix articles amb accions al tauler per veure les seves pistes.
         </p>
 
         <!-- Playhead line over the lanes (the dot lives in the sticky ruler) -->
         <div
           class="pointer-events-none absolute top-0 z-10 w-px bg-danger"
-          :style="{ left: LABEL_W + playback.currentMs * pxPerMs + 'px', height: '100%' }" />
+          :style="{ left: labelW + playback.currentMs * pxPerMs + 'px', height: '100%' }" />
       </div>
     </div>
   </section>
