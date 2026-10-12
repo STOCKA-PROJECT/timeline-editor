@@ -2,32 +2,116 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Tokens del brandbook de Stocka (sistema de disseny "Stocka", tema clar per defecte i tema fosc
+ * per a l'editor de shows o per a qui el prefereixi). Els noms --c-* es conserven perquè els
+ * components existents segueixin funcionant; els valors són els del brandbook.
+ */
 @layer base {
   :root {
-    --c-bg: #f4efe6;
-    --c-bg-card: #faf6ee;
-    --c-bg-alt: #ede7da;
-    --c-bg-soft: #efe9dc;
-    --c-field: #fffdf8;
+    /* superfícies */
+    --c-bg: #f4f6f7;            /* surface-page */
+    --c-bg-card: #ffffff;       /* surface-panel */
+    --c-bg-alt: #ebeef0;        /* surface-sunken */
+    --c-bg-soft: #eef3f4;       /* surface-hover */
+    --c-field: #ffffff;
+    --c-selected: #ddeef0;      /* surface-selected = brand-soft */
 
-    --c-ink: #2a2722;
-    --c-ink-soft: #6b655b;
-    --c-ink-muted: #9a9389;
+    /* línies */
+    --c-line: #e1e5e8;          /* line-subtle */
+    --c-line-strong: #c5ccd2;   /* line-strong */
+    --c-line-control: #77838e;  /* line-control */
 
-    --c-line: #e4ddce;
-    --c-line-strong: #d4ccba;
+    /* text */
+    --c-ink: #16212b;
+    --c-ink-soft: #46535f;      /* ink-muted */
+    --c-ink-muted: #5f6c78;     /* ink-subtle */
 
-    --c-accent: #6b8068;
-    --c-accent-ink: #3c5239;
-    --c-accent-soft: #d9e3d4;
+    /* marca */
+    --c-accent: #0b5a66;        /* brand */
+    --c-accent-ink: #084752;    /* brand-hover */
+    --c-accent-soft: #ddeef0;   /* brand-soft */
+    --c-on-accent: #ffffff;     /* on-brand */
+    --c-highlight: #f0a63a;     /* accent (ambre), un sol ús per vista */
+    --c-highlight-ink: #8a5200;
+    --c-on-highlight: #2b1b00;
 
-    --c-danger: #b5534b;
-    --c-danger-soft: #f1d7d3;
-    --c-warn: #c48c3a;
-    --c-warn-soft: #f4e4c8;
+    /* estats */
+    --c-ok: #0f6b4f;
+    --c-ok-soft: #ddf2e9;
+    --c-warn: #8a4b00;
+    --c-warn-soft: #fcebd0;
+    --c-danger: #a8281d;
+    --c-danger-soft: #fbe3df;
+
+    --shadow-raised: 0 1px 2px #16212b14, 0 4px 12px #16212b1f;
+    --shadow-overlay: 0 8px 24px #16212b29, 0 24px 48px -8px #16212b33;
+    --focus-ring: 0 0 0 2px var(--c-bg-card), 0 0 0 4px var(--c-accent);
+
+    --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
     --topbar-h: 52px;
     --timeline-h: 320px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --c-bg: #0e1418;
+      --c-bg-card: #151d22;
+      --c-bg-alt: #0a0f12;
+      --c-bg-soft: #1b252b;
+      --c-field: #151d22;
+      --c-selected: #12343b;
+      --c-line: #222d34;
+      --c-line-strong: #33414a;
+      --c-line-control: #7e8c96;
+      --c-ink: #e8eef1;
+      --c-ink-soft: #a9b6be;
+      --c-ink-muted: #8c9aa3;
+      --c-accent: #4fb8c6;
+      --c-accent-ink: #72cbd7;
+      --c-accent-soft: #12343b;
+      --c-on-accent: #06262b;
+      --c-highlight-ink: #f3bc6a;
+      --c-ok: #5fd0a5;
+      --c-ok-soft: #10332a;
+      --c-warn: #f2b45c;
+      --c-warn-soft: #3a2a0c;
+      --c-danger: #ff9b8f;
+      --c-danger-soft: #40160f;
+      --shadow-raised: 0 1px 2px #00000080, 0 6px 16px #00000073;
+      --shadow-overlay: 0 24px 48px -8px #000000cc;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --c-bg: #0e1418;
+    --c-bg-card: #151d22;
+    --c-bg-alt: #0a0f12;
+    --c-bg-soft: #1b252b;
+    --c-field: #151d22;
+    --c-selected: #12343b;
+    --c-line: #222d34;
+    --c-line-strong: #33414a;
+    --c-line-control: #7e8c96;
+    --c-ink: #e8eef1;
+    --c-ink-soft: #a9b6be;
+    --c-ink-muted: #8c9aa3;
+    --c-accent: #4fb8c6;
+    --c-accent-ink: #72cbd7;
+    --c-accent-soft: #12343b;
+    --c-on-accent: #06262b;
+    --c-highlight-ink: #f3bc6a;
+    --c-ok: #5fd0a5;
+    --c-ok-soft: #10332a;
+    --c-warn: #f2b45c;
+    --c-warn-soft: #3a2a0c;
+    --c-danger: #ff9b8f;
+    --c-danger-soft: #40160f;
+    --shadow-raised: 0 1px 2px #00000080, 0 6px 16px #00000073;
+    --shadow-overlay: 0 24px 48px -8px #000000cc;
   }
 
   html, body, #__nuxt {
@@ -37,37 +121,74 @@
   body {
     @apply bg-bg font-sans text-ink antialiased;
     margin: 0;
+    font-size: 14px;
+    line-height: 20px;
   }
 
   *:focus-visible {
-    @apply outline-none ring-2 ring-accent rounded;
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+    box-shadow: var(--focus-ring);
+    border-radius: 6px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
   }
 }
 
 @layer components {
+  /* Button (brandbook: stk-btn). control-md = 32 px; --sm = 28 px dins de barres i taules. */
   .btn {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-[9px] border border-line bg-bg-card px-3 text-[13px] font-medium text-ink transition-colors;
-    height: 34px;
+    @apply inline-flex items-center justify-center gap-2 rounded-[6px] border border-line-control bg-bg-card px-3 text-[14px] font-medium leading-5 text-ink transition-colors;
+    height: 32px;
+    white-space: nowrap;
   }
   .btn:hover:not(:disabled) { @apply bg-bg-soft; }
-  .btn:disabled { @apply opacity-50; cursor: not-allowed; }
-  .btn-primary {
-    @apply border-ink bg-ink text-bg-card;
-  }
-  .btn-primary:hover:not(:disabled) { background: color-mix(in oklab, var(--c-ink) 90%, transparent); }
+  .btn:disabled { border-color: transparent; background: var(--c-bg-alt); color: var(--c-ink-muted); cursor: not-allowed; }
+  .btn-sm { height: 28px; @apply px-2 text-[13px]; }
+  .btn-primary { border-color: var(--c-accent); background: var(--c-accent); color: var(--c-on-accent); }
+  .btn-primary:hover:not(:disabled) { border-color: var(--c-accent-ink); background: var(--c-accent-ink); }
+  .btn-quiet { border-color: transparent; background: transparent; color: var(--c-accent); }
+  .btn-quiet:hover:not(:disabled) { background: var(--c-accent-soft); }
   .btn-danger { @apply border-danger text-danger; }
   .btn-danger:hover:not(:disabled) { @apply bg-danger-soft; }
 
+  /* Field (brandbook: stk-field__control + __input). */
   .field {
-    @apply w-full rounded-[8px] border border-line bg-field px-2.5 text-[13px] text-ink;
-    height: 34px;
+    @apply w-full rounded-[6px] border border-line-control bg-field px-2 text-[14px] leading-5 text-ink transition-colors;
+    height: 32px;
   }
-  .field:focus { @apply outline-none border-ink; }
+  .field::placeholder { color: var(--c-ink-muted); opacity: 1; }
+  .field:focus { outline: none; border-color: var(--c-accent); box-shadow: var(--focus-ring); }
+  .field-sm { height: 28px; @apply text-[13px]; }
+  .field-code { font-family: var(--font-mono); @apply text-[13px]; }
 
+  /* Badge (brandbook: stk-badge). Una o dues paraules; color i forma distingeixen l'estat. */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-[3px] px-2 text-[12px] font-medium leading-4;
+    height: 20px;
+    background: var(--c-bg-alt);
+    color: var(--c-ink-soft);
+    white-space: nowrap;
+  }
+  .badge::before { content: ""; width: 6px; height: 6px; flex: none; border-radius: 50%; background: currentColor; }
+  .badge-ok { background: var(--c-ok-soft); color: var(--c-ok); }
+  .badge-brand { background: var(--c-accent-soft); color: var(--c-accent); }
+  .badge-brand::before { border-radius: 1px; }
+  .badge-warn { background: var(--c-warn-soft); color: var(--c-warn); }
+  .badge-warn::before { width: 8px; height: 7px; border-radius: 0; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+  .badge-danger { background: var(--c-danger); color: var(--c-bg-card); }
+  .badge-danger::before { width: 8px; height: 2px; border-radius: 0; }
+
+  /* Panel */
   .panel {
-    @apply rounded-[12px] border border-line bg-bg-card;
+    @apply rounded-[10px] border border-line-strong bg-bg-card;
   }
-  .panel-title {
-    @apply px-3 py-2 text-[11px] font-semibold uppercase tracking-[.08em] text-ink-muted;
+  .panel-title, .label {
+    @apply text-[11px] font-semibold uppercase leading-[14px] tracking-[.06em] text-ink-soft;
   }
+  .panel-title { @apply px-3 py-2; }
+  .shadow-raised { box-shadow: var(--shadow-raised); }
+  .shadow-overlay { box-shadow: var(--shadow-overlay); }
 }

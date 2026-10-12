@@ -273,7 +273,12 @@ export const useSceneStore = defineStore('scene', () => {
   }
 
   // ----- items -----
-  function addItem(pieceId: number, layerId?: string, pos?: { x: number, y: number }): SceneItem {
+  function addItem(
+    pieceId: number,
+    layerId?: string,
+    pos?: { x: number, y: number },
+    opts?: { withTrack?: boolean }
+  ): SceneItem {
     const targetLayer = layerId ?? layersByZ.value[layersByZ.value.length - 1]?.id ?? addLayer().id
     // New items default to a physical 10×10 cm, converted to pixels via the board scale.
     const size = cmToPx(DEFAULT_ITEM_SIZE_CM)
@@ -288,7 +293,8 @@ export const useSceneStore = defineStore('scene', () => {
       rotation: 0
     }
     items.value = [...items.value, item]
-    ensureTrackForItem(item.id)
+    // Pieces without available actions get no timeline track.
+    if (opts?.withTrack !== false) ensureTrackForItem(item.id)
     touch()
     return item
   }
@@ -346,6 +352,15 @@ export const useSceneStore = defineStore('scene', () => {
     touch()
   }
 
+  /**
+   * Replaces the whole document with an imported one. Goes through {@link touch} so the
+   * import is undoable and gets persisted by the autosave like any other edit.
+   */
+  function importDocument(doc: SceneDocument) {
+    applyDocument(doc)
+    touch()
+  }
+
   function reset() {
     applyDocument(emptyDocument())
     version.value = null
@@ -387,6 +402,7 @@ export const useSceneStore = defineStore('scene', () => {
     clipById,
     clipsForTrack,
     buildDocument,
+    importDocument,
     load,
     save,
     setBoard,

@@ -12,6 +12,33 @@ const lanesRef = ref<HTMLDivElement | null>(null)
 const totalWidth = computed(() => scene.durationMs * pxPerMs.value)
 const seconds = computed(() => Math.ceil(scene.durationMs / 1000))
 
+// Only tracks whose piece has available actions appear in the timeline
+// (also hides tracks of actionless pieces in scenes saved before this rule).
+const visibleTracks = computed(() =>
+  scene.tracks.filter((track) => {
+    const item = scene.itemById(track.itemId)
+    return catalog.actionsForPiece(catalog.pieceById(item?.pieceId ?? -1)).length > 0
+  })
+)
+
+// ---- board <-> timeline selection sync ----
+/** A track is highlighted when its board item is part of the current selection. */
+function isTrackSelected(track: SceneTrack): boolean {
+  return selection.selectedItemIds.includes(track.itemId)
+}
+
+// Selecting a board item scrolls its track into view ("focus" in the timeline).
+watch(() => selection.selectedItemId, (itemId) => {
+  if (!itemId) return
+  const track = visibleTracks.value.find(t => t.itemId === itemId)
+  if (!track) return
+  nextTick(() => {
+    lanesRef.value
+      ?.querySelector(`[data-track-id="${track.id}"]`)
+      ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  })
+})
+
 function trackItemName(track: SceneTrack): string {
   const item = scene.itemById(track.itemId)
   return item ? (catalog.pieceById(item.pieceId)?.name ?? `#${item.pieceId}`) : track.name
@@ -35,7 +62,9 @@ async function addClipAt(track: SceneTrack, ms: number) {
   const item = scene.itemById(track.itemId)
   const piece = catalog.pieceById(item?.pieceId ?? -1)
   await catalog.ensureActionsForPiece(piece)
-  const firstAction = catalog.actionsForPiece(piece)[0]?.id ?? null
+  // Clips always carry an action; without one available the clip is not created.
+  const firstAction = catalog.actionsForPiece(piece)[0]?.id
+  if (firstAction == null) return
   const clip = scene.addClip(track.id, firstAction, ms)
   selection.selectClip(clip.id)
 }
@@ -99,26 +128,18 @@ const LABEL_W = 168
       </div>
     </div>
 
-    <div class="flex min-h-0 flex-1">
-      <!-- Track labels -->
-      <div class="flex-shrink-0 overflow-hidden border-r border-line" :style="{ width: LABEL_W + 'px' }">
-        <div class="h-6 border-b border-line bg-bg-soft" />
-        <div
-          v-for="track in scene.tracks"
-          :key="track.id"
-          class="flex h-10 items-center gap-1 truncate border-b border-line/60 px-2 text-[12px] text-ink">
-          <span class="truncate">{{ trackItemName(track) }}</span>
-        </div>
-        <p v-if="scene.tracks.length === 0" class="p-2 text-[11.5px] text-ink-muted">
-          Añade artículos al tablero para ver sus pistas.
-        </p>
-      </div>
-
-      <!-- Lanes -->
-      <div ref="lanesRef" class="relative min-w-0 flex-1 overflow-auto">
-        <div :style="{ width: totalWidth + 'px', minWidth: '100%' }">
-          <!-- Ruler -->
-          <div class="relative h-6 cursor-ew-resize border-b border-line bg-bg-soft" @pointerdown="onRulerPointerDown">
+    <!-- Single scroll container: labels stay sticky-left and the ruler sticky-top,
+         so name and lane always share the same row while scrolling in any direction. -->
+    <div ref="lanesRef" class="relative min-h-0 flex-1 overflow-auto">
+      <div class="relative" :style="{ width: LABEL_W + totalWidth + 'px', minWidth: '100%' }">
+        <!-- Header row -->
+        <div class="sticky top-0 z-30 flex">
+          <div
+            class="sticky left-0 z-10 h-6 flex-shrink-0 border-b border-r border-line bg-bg-soft"
+            :style="{ width: LABEL_W + 'px' }" />
+          <div
+            class="relative h-6 min-w-0 flex-1 cursor-ew-resize border-b border-line bg-bg-soft"
+            @pointerdown="onRulerPointerDown">
             <div
               v-for="s in seconds"
               :key="s"
@@ -126,13 +147,29 @@ const LABEL_W = 168
               :style="{ left: (s - 1) * 1000 * pxPerMs + 'px' }">
               {{ s - 1 }}s
             </div>
+            <div
+              class="pointer-events-none absolute top-0 h-full w-px bg-danger"
+              :style="{ left: playback.currentMs * pxPerMs + 'px' }">
+              <div class="absolute -left-1 top-0 h-2 w-2 rounded-full bg-danger" />
+            </div>
           </div>
+        </div>
 
-          <!-- Track lanes -->
+        <!-- Track rows: label + lane share the same row, always aligned -->
+        <div
+          v-for="track in visibleTracks"
+          :key="track.id"
+          :data-track-id="track.id"
+          class="flex h-10 border-b border-line/60">
           <div
-            v-for="track in scene.tracks"
-            :key="track.id"
-            class="relative h-10 border-b border-line/60"
+            class="sticky left-0 z-20 flex h-full flex-shrink-0 items-center gap-1 truncate border-r border-line px-2 text-[12px]"
+            :class="isTrackSelected(track) ? 'bg-accent-soft font-medium text-accent-ink' : 'bg-bg-card text-ink'"
+            :style="{ width: LABEL_W + 'px' }">
+            <span class="truncate">{{ trackItemName(track) }}</span>
+          </div>
+          <div
+            class="relative h-full min-w-0 flex-1"
+            :class="isTrackSelected(track) ? 'bg-accent-soft/20' : ''"
             @dblclick="onLaneDblClick(track, $event)">
             <div
               v-for="clip in scene.clipsForTrack(track.id)"
@@ -147,14 +184,16 @@ const LABEL_W = 168
                 @pointerdown="startClipDrag(clip, $event, 'resize')" />
             </div>
           </div>
-
-          <!-- Playhead -->
-          <div
-            class="pointer-events-none absolute top-0 z-10 w-px bg-danger"
-            :style="{ left: playback.currentMs * pxPerMs + 'px', height: '100%' }">
-            <div class="absolute -left-1 top-0 h-2 w-2 rounded-full bg-danger" />
-          </div>
         </div>
+
+        <p v-if="visibleTracks.length === 0" class="p-2 text-[11.5px] text-ink-muted">
+          Añade artículos con acciones al tablero para ver sus pistas.
+        </p>
+
+        <!-- Playhead line over the lanes (the dot lives in the sticky ruler) -->
+        <div
+          class="pointer-events-none absolute top-0 z-10 w-px bg-danger"
+          :style="{ left: LABEL_W + playback.currentMs * pxPerMs + 'px', height: '100%' }" />
       </div>
     </div>
   </section>

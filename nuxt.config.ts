@@ -40,7 +40,16 @@ export default defineNuxtConfig({
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
         { name: 'robots', content: 'noindex, nofollow' }
       ],
-      link: [{ rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' }]
+      link: [
+        { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' },
+        // Brandbook fonts: Archivo (titles), IBM Plex Sans (UI), IBM Plex Mono (codes and data).
+        { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
+        { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },
+        {
+          rel: 'stylesheet',
+          href: 'https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap'
+        }
+      ]
     }
   },
 

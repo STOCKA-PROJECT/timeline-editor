@@ -67,8 +67,8 @@ watch(piece, p => {
   }
 }, { immediate: true })
 
-function setAction(id: number | null) {
-  if (!clip.value) return
+function setAction(id: number) {
+  if (!clip.value || !actions.value.some(a => a.id === id)) return
   // Reset param values when switching action.
   scene.updateClip(clip.value.id, { pieceTypeActionId: id, paramValues: {} })
 }
@@ -182,8 +182,9 @@ function togglePort(portId: number, checked: boolean) {
       <div class="flex flex-col gap-1">
         <label class="text-[12px] font-medium text-ink-soft">Acción</label>
         <select class="field" :value="clip.pieceTypeActionId ?? ''"
-          @change="setAction(($event.target as HTMLSelectElement).value ? Number(($event.target as HTMLSelectElement).value) : null)">
-          <option value="">Sin acción</option>
+          @change="setAction(Number(($event.target as HTMLSelectElement).value))">
+          <!-- Clips saved without an action keep a blank value until a real action is picked. -->
+          <option v-if="clip.pieceTypeActionId == null" value="" disabled>Selecciona una acción</option>
           <option v-for="a in actions" :key="a.id" :value="a.id">{{ a.displayName }}</option>
         </select>
         <p v-if="actions.length === 0" class="text-[11.5px] text-ink-muted">

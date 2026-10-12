@@ -150,8 +150,11 @@ function onItemClick(item: SceneItem, e: any) {
 }
 
 function onStageClick(e: any) {
-  // Click on empty space (the stage itself) clears selection.
-  if (e.target === e.target.getStage()) selection.selectItem(null)
+  // Click on empty space (the stage itself or the board background) clears the selection.
+  if (e.target === e.target.getStage() || e.target.name?.() === 'board-bg') {
+    selection.selectItem(null)
+    selection.selectClip(null)
+  }
   closeCtxMenu()
 }
 
@@ -206,7 +209,7 @@ function onTransformEnd(item: SceneItem, e: any) {
 }
 
 // ---- drop from catalog ----
-function onDrop(e: DragEvent) {
+async function onDrop(e: DragEvent) {
   e.preventDefault()
   const raw = e.dataTransfer?.getData('application/x-stocka-piece')
   if (!raw) return
@@ -220,9 +223,13 @@ function onDrop(e: DragEvent) {
   if (!rect) return
   const x = Math.round((e.clientX - rect.left - view.x) / view.scale)
   const y = Math.round((e.clientY - rect.top - view.y) / view.scale)
-  const item = scene.addItem(pieceId, layerId, { x, y })
+  // Load the piece's actions first: pieces without actions don't get a timeline track.
+  const piece = catalog.pieceById(pieceId)
+  await catalog.ensureActionsForPiece(piece)
+  const hasActions = catalog.actionsForPiece(piece).length > 0
+  const item = scene.addItem(pieceId, layerId, { x, y }, { withTrack: hasActions })
   selection.selectItem(item.id)
-  catalog.ensureActionsForPiece(catalog.pieceById(pieceId))
+  if (!hasActions) flashHint('Este artículo no tiene acciones disponibles: no se añade a la línea de tiempo.')
 }
 
 // Brief hint banner shown when a drop is rejected (no active layer / already placed).
@@ -253,7 +260,7 @@ onBeforeUnmount(() => { if (hintTimer) clearTimeout(hintTimer) })
       @dragend="syncViewFromStage">
       <!-- Board background (always a rectangle) -->
       <v-layer>
-        <v-rect :config="{ x: 0, y: 0, width: scene.board.width, height: scene.board.height, fill: '#ffffff', stroke: '#d4ccba', strokeWidth: 1 }" />
+        <v-rect :config="{ name: 'board-bg', x: 0, y: 0, width: scene.board.width, height: scene.board.height, fill: '#ffffff', stroke: '#d4ccba', strokeWidth: 1 }" />
       </v-layer>
 
       <!-- One Konva layer per scene layer, in z order -->

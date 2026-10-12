@@ -50,7 +50,15 @@ export const useCatalogStore = defineStore('catalog', () => {
   function portsForPiece(piece: PieceListItemDto | undefined): PortResponseDto[] {
     if (!piece) return []
     const typeIds = new Set(piece.pieceTypes.map(t => t.id))
-    return ports.value.filter(p => typeIds.has(p.pieceTypeId))
+    return ports.value.filter(p => p.pieceTypeId != null && typeIds.has(p.pieceTypeId))
+  }
+
+  /** Piece type that owns an action (actions are cached per type once loaded). */
+  function typeIdOfAction(actionId: number): number | undefined {
+    for (const [typeId, actions] of Object.entries(actionsByType.value)) {
+      if (actions.some(a => a.id === actionId)) return Number(typeId)
+    }
+    return undefined
   }
 
   function pieceById(id: number): PieceListItemDto | undefined {
@@ -143,6 +151,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     ensurePieceDetail,
     portById,
     portsForPiece,
+    typeIdOfAction,
     reset
   }
 })

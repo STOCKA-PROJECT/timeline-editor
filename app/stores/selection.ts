@@ -24,7 +24,12 @@ export const useSelectionStore = defineStore('selection', () => {
 
   function selectClip(id: string | null) {
     selectedClipId.value = id
-    if (id) selectedItemIds.value = []
+    if (id) {
+      // Selecting a clip also selects the board item (piece) it belongs to.
+      const scene = useSceneStore()
+      const track = scene.trackById(scene.clipById(id)?.trackId ?? '')
+      selectedItemIds.value = track ? [track.itemId] : []
+    }
   }
 
   function setActiveLayer(id: string | null) {

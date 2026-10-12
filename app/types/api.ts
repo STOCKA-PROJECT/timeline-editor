@@ -1,3 +1,5 @@
+import type { OutputKind } from '~/types/catalog'
+
 // Subset of the main Stocka frontend's app/types/api.ts — only what the editor needs.
 // Keep in sync with the backend DTOs. (Future: extract to a shared package.)
 
@@ -117,20 +119,27 @@ export interface PieceTypeActionResponseDto {
 export interface PieceTypeResponseDto {
   id: number
   name: string
+  /** Output kind the type drives (catalog id), or null for inventory-only types. */
+  kind?: OutputKind | null
   actions?: PieceTypeActionResponseDto[]
 }
 
 /**
- * A hardware port (Raspberry Pi GPIO output) declared by the organization and tied to a single
- * piece type. Assignable to a board item whose piece is of that type. Gated feature: organizations
- * without it expose no ports.
+ * A hardware port of the organization's belén controller, typed by the output catalog (`kind`)
+ * and carrying a kind-specific `config` (strip DMA/channel/length, segment strip/first/last, the
+ * three motor pins...). Piece-bound ports reference a piece type of the same kind and are
+ * assignable to a board item whose piece is of that type; infrastructure ports (strips, button)
+ * have no piece type. Gated feature: organizations without it expose no ports.
  */
 export interface PortResponseDto {
   id: number
   name: string
-  pieceTypeId: number
+  kind: OutputKind
+  pieceTypeId: number | null
   pieceTypeName: string | null
+  /** GPIO pin for kinds that have one (relay, led_strip, button); null otherwise. */
   pin: number | null
+  config: Record<string, unknown>
   position: number
   parameters: ActionParameterDto[]
 }
