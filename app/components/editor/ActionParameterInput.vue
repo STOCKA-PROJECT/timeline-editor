@@ -54,11 +54,13 @@ function toggleMulti(opt: string, checked: boolean) {
     </label>
 
     <div v-if="colorPickable" class="flex items-center gap-2">
+      <!-- Always enabled: picking a colour is how an unset parameter gets its first value. -->
       <input
         type="color"
-        class="h-8 w-10 flex-shrink-0 cursor-pointer rounded-[6px] border border-line bg-bg-card p-0.5 disabled:cursor-not-allowed disabled:opacity-40"
-        :value="asHex ?? '#000000'"
-        :disabled="colorUnset"
+        class="h-8 w-10 flex-shrink-0 cursor-pointer rounded-[6px] border border-line bg-bg-card p-0.5"
+        :class="colorUnset ? 'opacity-40' : ''"
+        :value="asHex ?? '#ffffff'"
+        title="Tria un color"
         @input="set(($event.target as HTMLInputElement).value)">
       <span class="font-mono text-[12px] text-ink-soft">{{ colorUnset ? '—' : asHex }}</span>
       <label v-if="!param.required" class="ml-auto flex cursor-pointer items-center gap-1.5 text-[11.5px] text-ink-muted">
