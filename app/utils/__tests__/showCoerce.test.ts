@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { coerceParam, parseRgb } from '~/utils/showCoerce'
+import { coerceParam, parseRgb, parseRgbList } from '~/utils/showCoerce'
 
 describe('parseRgb', () => {
   it.each([
@@ -62,5 +62,32 @@ describe('coerceParam', () => {
     expect(coerceParam('blau', { type: 'rgb' })).toMatchObject({ ok: false, reason: 'type' })
     expect(coerceParam('fade', { type: 'enum', values: ['fade', 'fire'] })).toEqual({ ok: true, value: 'fade' })
     expect(coerceParam('disco', { type: 'enum', values: ['fade', 'fire'] })).toMatchObject({ ok: false, reason: 'enum', expected: 'fade, fire' })
+  })
+})
+
+describe('rgb_list (fade waypoints)', () => {
+  it('parses arrays, JSON text and ;-separated colours in any notation', () => {
+    expect(parseRgbList([[1, 2, 3], '#00ff00', '255,0,0'])).toEqual([[1, 2, 3], [0, 255, 0], [255, 0, 0]])
+    expect(parseRgbList('[[1,2,3],"#0f0"]')).toEqual([[1, 2, 3], [0, 255, 0]])
+    expect(parseRgbList('#f00;#0f0')).toEqual([[255, 0, 0], [0, 255, 0]])
+    expect(parseRgbList('[255,0,0]')).toEqual([[255, 0, 0]])
+    expect(parseRgbList('')).toEqual([])
+    expect(parseRgbList([])).toEqual([])
+  })
+
+  it('rejects anything that is not a list of colours', () => {
+    expect(parseRgbList([[1, 2, 3], 'blau'])).toBeNull()
+    expect(parseRgbList([1, 2, 3])).toBeNull()
+    expect(parseRgbList('{}')).toBeNull()
+    expect(parseRgbList('[[1,2,300]]')).toBeNull()
+    expect(parseRgbList(42)).toBeNull()
+  })
+
+  it('coerces to [r,g,b][], omits an empty optional list and requires a non-empty required one', () => {
+    expect(coerceParam('#f00;#0f0', { type: 'rgb_list' })).toEqual({ ok: true, value: [[255, 0, 0], [0, 255, 0]] })
+    expect(coerceParam([], { type: 'rgb_list' })).toMatchObject({ ok: true, omitted: true })
+    expect(coerceParam('', { type: 'rgb_list' })).toMatchObject({ ok: true, omitted: true })
+    expect(coerceParam([], { type: 'rgb_list', required: true })).toMatchObject({ ok: false, reason: 'required' })
+    expect(coerceParam('blau', { type: 'rgb_list' })).toMatchObject({ ok: false, reason: 'type' })
   })
 })

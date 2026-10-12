@@ -16,6 +16,7 @@ const TYPE_LABEL: Record<CatalogParam['type'], string> = {
   bool: 'un booleà',
   string: 'text',
   rgb: 'un color [r, g, b]',
+  rgb_list: 'una llista de colors',
   enum: 'un valor de la llista'
 }
 
@@ -61,8 +62,44 @@ function rangeLabel(spec: CatalogParam): string {
   return `entre ${spec.min ?? '-∞'} i ${spec.max ?? '∞'}`
 }
 
+/**
+ * Parses a list of colours: an array whose items are colours in any {@link parseRgb} notation,
+ * a JSON array in text form, or colours separated by `;` (`#f00;#0f0`). An empty list is valid.
+ */
+export function parseRgbList(value: unknown): Rgb[] | null {
+  let items: unknown[]
+  if (Array.isArray(value)) {
+    items = value
+  } else if (typeof value === 'string') {
+    const text = value.trim()
+    if (text === '') return []
+    if (text.startsWith('[') && !/^\[\s*\d/.test(text)) {
+      try {
+        const parsed: unknown = JSON.parse(text)
+        if (!Array.isArray(parsed)) return null
+        items = parsed
+      } catch {
+        return null
+      }
+    } else {
+      items = text.split(';')
+    }
+  } else {
+    return null
+  }
+  const out: Rgb[] = []
+  for (const item of items) {
+    const rgb = parseRgb(item)
+    if (!rgb) return null
+    out.push(rgb)
+  }
+  return out
+}
+
 /** Coerces one value against its catalog parameter. Blank optionals are omitted. */
 export function coerceParam(value: unknown, spec: CatalogParam): CoerceResult {
+  // An empty colour list says nothing: treat it like a blank value.
+  if (spec.type === 'rgb_list' && Array.isArray(value) && value.length === 0) value = ''
   if (isBlank(value)) {
     return spec.required ? { ok: false, reason: 'required', expected: TYPE_LABEL[spec.type] } : { ok: true, value: undefined, omitted: true }
   }
@@ -93,6 +130,14 @@ export function coerceParam(value: unknown, spec: CatalogParam): CoerceResult {
     case 'rgb': {
       const rgb = parseRgb(value)
       return rgb ? { ok: true, value: rgb } : { ok: false, reason: 'type', expected: TYPE_LABEL.rgb }
+    }
+    case 'rgb_list': {
+      const list = parseRgbList(value)
+      if (!list) return { ok: false, reason: 'type', expected: TYPE_LABEL.rgb_list }
+      if (list.length === 0) {
+        return spec.required ? { ok: false, reason: 'required', expected: TYPE_LABEL.rgb_list } : { ok: true, value: undefined, omitted: true }
+      }
+      return { ok: true, value: list }
     }
     case 'enum': {
       if (typeof value === 'string' && spec.values?.includes(value)) return { ok: true, value }

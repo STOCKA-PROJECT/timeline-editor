@@ -4,7 +4,7 @@ import catalogJson from '~/data/catalog.json'
 // byte-identical copy of `rpi4-system/contract/catalog.json`; keep them in sync (see `version`).
 
 export type OutputKind = 'relay' | 'led_strip' | 'led_segment' | 'motor' | 'audio' | 'video' | 'button'
-export type CatalogType = 'int' | 'number' | 'bool' | 'string' | 'rgb' | 'enum'
+export type CatalogType = 'int' | 'number' | 'bool' | 'string' | 'rgb' | 'rgb_list' | 'enum'
 
 export interface CatalogParam {
   type: CatalogType

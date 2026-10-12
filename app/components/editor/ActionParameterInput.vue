@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ActionParameterDto } from '~/types/api'
 import type { CatalogType } from '~/types/catalog'
-import { parseRgb } from '~/utils/showCoerce'
+import { parseRgb, parseRgbList, type Rgb } from '~/utils/showCoerce'
 
 const props = defineProps<{
   param: ActionParameterDto
@@ -36,6 +36,35 @@ const colorPickable = computed(() => isColor.value && (colorUnset.value || asHex
 function setColorUnset(unset: boolean) {
   set(unset ? null : (asHex.value ?? '#ffffff'))
 }
+
+// ---- colour list (catalog rgb_list, e.g. fade waypoints) ----
+const toHex = (rgb: Rgb) => '#' + rgb.map(c => c.toString(16).padStart(2, '0')).join('')
+const isColorList = computed(() => props.catalogType === 'rgb_list')
+const parsedColorList = computed(() => parseRgbList(props.modelValue))
+/** Stored colours as `#rrggbb`; empty when unset or not a list of colours. */
+const colorList = computed<string[]>(() => (parsedColorList.value ?? []).map(toHex))
+const colorListInvalid = computed(() => isColorList.value && props.modelValue != null && props.modelValue !== '' && parsedColorList.value === null)
+
+/** Stores the list as `#rrggbb` strings; an empty list is stored as unset. */
+function setColorList(list: string[]) {
+  set(list.length ? list : null)
+}
+function addColor() {
+  setColorList([...colorList.value, colorList.value[colorList.value.length - 1] ?? '#ffffff'])
+}
+function updateColor(index: number, hex: string) {
+  setColorList(colorList.value.map((c, i) => (i === index ? hex : c)))
+}
+function removeColor(index: number) {
+  setColorList(colorList.value.filter((_, i) => i !== index))
+}
+function moveColor(index: number, dir: -1 | 1) {
+  const next = [...colorList.value]
+  const target = index + dir
+  if (target < 0 || target >= next.length) return
+  ;[next[index], next[target]] = [next[target]!, next[index]!]
+  setColorList(next)
+}
 const asBool = computed(() => props.modelValue === true)
 const asArray = computed(() => (Array.isArray(props.modelValue) ? props.modelValue as string[] : []))
 
@@ -67,6 +96,26 @@ function toggleMulti(opt: string, checked: boolean) {
         <input type="checkbox" :checked="colorUnset" @change="setColorUnset(($event.target as HTMLInputElement).checked)">
         Sense valor
       </label>
+    </div>
+
+    <div v-else-if="isColorList" class="flex flex-col gap-1.5">
+      <div v-for="(hex, i) in colorList" :key="i" class="flex items-center gap-2">
+        <span class="w-4 flex-shrink-0 text-right text-[11px] text-ink-muted">{{ i + 1 }}</span>
+        <input
+          type="color"
+          class="h-8 w-10 flex-shrink-0 cursor-pointer rounded-[6px] border border-line bg-bg-card p-0.5"
+          :value="hex"
+          @input="updateColor(i, ($event.target as HTMLInputElement).value)">
+        <span class="font-mono text-[12px] text-ink-soft">{{ hex }}</span>
+        <div class="ml-auto flex items-center gap-0.5 text-ink-muted">
+          <button type="button" class="px-1 text-[11px] disabled:opacity-30" title="Puja" :disabled="i === 0" @click="moveColor(i, -1)">▲</button>
+          <button type="button" class="px-1 text-[11px] disabled:opacity-30" title="Baixa" :disabled="i === colorList.length - 1" @click="moveColor(i, 1)">▼</button>
+          <button type="button" class="px-1 text-[11px] text-danger" title="Treu" @click="removeColor(i)">✕</button>
+        </div>
+      </div>
+      <p v-if="!colorList.length" class="text-[11.5px] text-ink-muted">Cap color intermedi: el fos va directe del color inicial al final.</p>
+      <p v-if="colorListInvalid" class="text-[11px] text-danger">El valor desat no és una llista de colors; en afegir-ne un es reemplaçarà.</p>
+      <button type="button" class="btn !h-7 self-start !px-2 !text-[12px]" @click="addColor">+ Afegeix un color</button>
     </div>
 
     <textarea

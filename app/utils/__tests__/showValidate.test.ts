@@ -58,6 +58,14 @@ describe('validateShowPackage', () => {
     expect(codes(pkg(p => { p.timeline[10]!.params.first = 0; p.timeline[10]!.params.last = 28 }))).toContain('E_SEGMENT_RANGE')
   })
 
+  it('fade waypoints must be a list of colours', () => {
+    expect(codes(pkg(p => { p.timeline[9]!.params.waypoints = [[10, 0, 60], [255, 255, 0]] }), 'error')).toEqual([])
+    expect(codes(pkg(p => { p.timeline[9]!.params.waypoints = [] }), 'error')).toEqual([])
+    expect(codes(pkg(p => { p.timeline[9]!.params.waypoints = [[10, 0, 60], '#ff0'] }))).toContain('E_PARAM_TYPE')
+    expect(codes(pkg(p => { p.timeline[9]!.params.waypoints = [10, 0, 60] }))).toContain('E_PARAM_TYPE')
+    expect(codes(pkg(p => { p.timeline[10]!.params = { animation_type: 'fire', waypoints: [[1, 2, 3]] } }))).toContain('E_ANIMATION_PARAM')
+  })
+
   it('time after the end and assets', () => {
     expect(codes(pkg(p => { p.durationMs = 100000 }))).toContain('E_T_AFTER_END')
     expect(codes(pkg(p => { p.assets.audio = [] }))).toContain('E_ASSET_UNLISTED')

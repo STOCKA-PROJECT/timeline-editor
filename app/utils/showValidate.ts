@@ -11,6 +11,11 @@ type Hardware = ShowPackage['hardware']
  * Strict type check of a value already in package form (no coercion: the device reads it as is).
  * Returns the problem, or null when the value fits. Mirrors `check_value` in validate.py.
  */
+/** `[r, g, b]` with three integers in 0–255. */
+function isRgb(value: unknown): boolean {
+  return Array.isArray(value) && value.length === 3 && value.every(c => Number.isInteger(c) && c >= 0 && c <= 255)
+}
+
 export function checkValue(value: unknown, spec: CatalogParam): string | null {
   const isNum = typeof value === 'number' && Number.isFinite(value)
   switch (spec.type) {
@@ -27,9 +32,10 @@ export function checkValue(value: unknown, spec: CatalogParam): string | null {
       if (typeof value !== 'string') return 'ha de ser text'
       return null
     case 'rgb':
-      if (!Array.isArray(value) || value.length !== 3 || !value.every(c => Number.isInteger(c) && c >= 0 && c <= 255)) {
-        return 'ha de ser un color [r, g, b] amb valors de 0 a 255'
-      }
+      if (!isRgb(value)) return 'ha de ser un color [r, g, b] amb valors de 0 a 255'
+      return null
+    case 'rgb_list':
+      if (!Array.isArray(value) || !value.every(isRgb)) return 'ha de ser una llista de colors [[r, g, b], …] amb valors de 0 a 255'
       return null
     case 'enum':
       if (typeof value !== 'string' || !spec.values?.includes(value)) return `ha de ser un de: ${(spec.values ?? []).join(', ')}`
