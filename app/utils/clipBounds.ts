@@ -66,22 +66,28 @@ export interface MoveOptions {
   snapMs?: number
   /** Extra positions the clip start or end may snap to (playhead, 0...). */
   snapTargets?: number[]
+  /**
+   * When true, clips may overlap (a piece can run several actions at once): the neighbours only
+   * act as snap targets. When false, the clip is clamped so it never overlaps them.
+   */
+  allowOverlap?: boolean
 }
 
 /**
  * Start of a dragged clip: rounded to the grid, magnetised to its neighbours' edges and the extra
- * targets, and clamped so it never overlaps the clips around it.
+ * targets, and (unless overlapping is allowed) clamped so it never overlaps the clips around it.
  */
 export function constrainMove(clip: ClipSpan, others: ClipSpan[], desiredStart: number, opts: MoveOptions = {}): number {
-  const { gridMs = 50, snapMs = 0, snapTargets = [] } = opts
+  const { gridMs = 50, snapMs = 0, snapTargets = [], allowOverlap = false } = opts
   const range = freeRange(clip, others)
   let start = Math.max(0, gridMs > 0 ? Math.round(desiredStart / gridMs) * gridMs : desiredStart)
   if (snapMs > 0) {
     // The start may snap to a target, or the end may (then the start follows).
     const startTargets = [range.prevEnd, ...snapTargets]
     const endTargets = [range.nextStart, ...snapTargets].map(t => t - clip.durationMs)
-    start = snapTo(start, [...startTargets, ...endTargets], snapMs)
+    start = Math.max(0, snapTo(start, [...startTargets, ...endTargets], snapMs))
   }
+  if (allowOverlap) return start
   return Math.min(range.maxStart, Math.max(range.minStart, start))
 }
 
@@ -92,30 +98,40 @@ export interface ResizeOptions extends MoveOptions {
 
 /**
  * Duration of a clip resized from its right edge: rounded to the grid, magnetised to the next
- * clip's start and the extra targets, never shorter than `minMs` nor reaching into the next clip.
+ * clip's start and the extra targets, never shorter than `minMs` nor (unless overlapping is
+ * allowed) reaching into the next clip.
  */
 export function constrainResize(clip: ClipSpan, others: ClipSpan[], desiredDuration: number, opts: ResizeOptions = {}): number {
-  const { gridMs = 50, snapMs = 0, snapTargets = [], minMs = 100 } = opts
+  const { gridMs = 50, snapMs = 0, snapTargets = [], minMs = 100, allowOverlap = false } = opts
   const range = freeRange(clip, others)
   let duration = gridMs > 0 ? Math.round(desiredDuration / gridMs) * gridMs : desiredDuration
   if (snapMs > 0) {
     const endTargets = [range.nextStart, ...snapTargets].map(t => t - clip.startMs)
     duration = snapTo(duration, endTargets, snapMs)
   }
+  if (allowOverlap) return Math.max(minMs, duration)
   const maxDuration = Math.max(minMs, range.nextStart - clip.startMs)
   return Math.min(maxDuration, Math.max(minMs, duration))
 }
 
 /**
- * Where a new clip dropped at `atMs` fits on a track: null when `atMs` falls inside an existing
- * clip, otherwise the start (at `atMs`) and a duration cut down to the free space before the
- * next clip (never below `minMs`).
+ * Sub-lane of every clip of a track so overlapping clips are drawn one under the other instead of
+ * on top of each other: clips are taken in start order and each goes to the first lane whose last
+ * clip ended before it starts (classic interval layout). Returns the lane per clip id and how many
+ * lanes the track needs (at least 1).
  */
-export function fitNewClip(others: ClipSpan[], atMs: number, defaultMs: number, minMs = 100): ClipSpan | null {
-  const startMs = Math.max(0, Math.round(atMs))
-  if (others.some(o => o.startMs <= startMs && startMs < end(o))) return null
-  const nextStart = others.filter(o => o.startMs > startMs).reduce((m, o) => Math.min(m, o.startMs), Number.POSITIVE_INFINITY)
-  const room = nextStart - startMs
-  if (room < minMs) return null
-  return { startMs, durationMs: Math.min(defaultMs, room) }
+export function assignLanes(clips: ClipSpan[]): { lanes: Map<string, number>, count: number } {
+  const lanes = new Map<string, number>()
+  const laneEnds: number[] = []
+  const ordered = [...clips].sort((a, b) => a.startMs - b.startMs || end(b) - end(a))
+  for (const c of ordered) {
+    let lane = laneEnds.findIndex(e => e <= c.startMs)
+    if (lane === -1) {
+      lane = laneEnds.length
+      laneEnds.push(0)
+    }
+    laneEnds[lane] = end(c)
+    if (c.id != null) lanes.set(c.id, lane)
+  }
+  return { lanes, count: Math.max(1, laneEnds.length) }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { constrainMove, constrainResize, fitNewClip, freeRange, snapTo } from '~/utils/clipBounds'
+import { assignLanes, constrainMove, constrainResize, freeRange, snapTo } from '~/utils/clipBounds'
 
 const a = { id: 'a', startMs: 0, durationMs: 1000 }
 const b = { id: 'b', startMs: 3000, durationMs: 1000 }
@@ -90,18 +90,47 @@ describe('constrainResize', () => {
   })
 })
 
-describe('fitNewClip', () => {
-  it('refuses a drop inside an existing clip', () => {
-    expect(fitNewClip(track, 3500, 2000)).toBeNull()
-    expect(fitNewClip(track, 3000, 2000)).toBeNull()
-    expect(fitNewClip(track, 4000, 2000)).not.toBeNull()
+describe('allowOverlap', () => {
+  it('lets a clip move over and past its neighbours, still snapping to their edges', () => {
+    expect(constrainMove(b, track, 500, { allowOverlap: true })).toBe(500)
+    expect(constrainMove(b, track, 9000, { allowOverlap: true })).toBe(9000)
+    expect(constrainMove(b, track, 1120, { allowOverlap: true, snapMs: 200 })).toBe(1000)
+    expect(constrainMove(b, track, -400, { allowOverlap: true })).toBe(0)
   })
 
-  it('cuts the default duration down to the free space and refuses gaps below the minimum', () => {
-    expect(fitNewClip(track, 1500, 2000)).toEqual({ startMs: 1500, durationMs: 1500 })
-    expect(fitNewClip(track, 8000, 2000)).toEqual({ startMs: 8000, durationMs: 2000 })
-    expect(fitNewClip(track, 2950, 2000)).toBeNull()
-    expect(fitNewClip(track, -5, 2000)).toBeNull()
-    expect(fitNewClip([], -5, 2000)).toEqual({ startMs: 0, durationMs: 2000 })
+  it('lets a clip grow into the next one but never below the minimum', () => {
+    expect(constrainResize(b, track, 9000, { allowOverlap: true })).toBe(9000)
+    expect(constrainResize(b, track, 20, { allowOverlap: true })).toBe(100)
+    expect(constrainResize(b, track, 2880, { allowOverlap: true, snapMs: 200 })).toBe(3000)
+  })
+})
+
+describe('assignLanes', () => {
+  it('keeps non-overlapping clips on one lane', () => {
+    const { lanes, count } = assignLanes(track)
+    expect(count).toBe(1)
+    expect([...lanes.values()]).toEqual([0, 0, 0])
+  })
+
+  it('stacks overlapping clips on the first free lane', () => {
+    const x = { id: 'x', startMs: 500, durationMs: 1000 }
+    const y = { id: 'y', startMs: 800, durationMs: 300 }
+    const z = { id: 'z', startMs: 1500, durationMs: 100 }
+    const { lanes, count } = assignLanes([a, x, y, z, b])
+    expect(count).toBe(3)
+    expect(lanes.get('a')).toBe(0)
+    expect(lanes.get('x')).toBe(1)
+    expect(lanes.get('y')).toBe(2)
+    expect(lanes.get('z')).toBe(0)
+    expect(lanes.get('b')).toBe(0)
+  })
+
+  it('a clip may start exactly where the previous one ends on the same lane', () => {
+    const { count } = assignLanes([{ id: 'p', startMs: 0, durationMs: 1000 }, { id: 'q', startMs: 1000, durationMs: 1000 }])
+    expect(count).toBe(1)
+  })
+
+  it('an empty track still has one lane', () => {
+    expect(assignLanes([]).count).toBe(1)
   })
 })
