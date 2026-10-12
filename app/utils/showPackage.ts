@@ -1,4 +1,4 @@
-import type { PortResponseDto } from '~/types/api'
+import type { PieceAttachmentResponseDto, PortResponseDto } from '~/types/api'
 import {
   actionParams,
   catalog as defaultCatalog,
@@ -11,11 +11,13 @@ import {
   issue,
   SHOW_FORMAT,
   SHOW_VERSION,
+  type ShowAssetRef,
   type ShowEvent,
   type ShowIssue,
   type ShowMode,
   type ShowPackage
 } from '~/types/show'
+import { audioFileWindow, findAudioByAssetName, formatClock } from '~/utils/audioAssets'
 import { canonicalJson, sha256Hex } from '~/utils/canonicalJson'
 import { buildExecutionPlan, type CatalogLookups } from '~/utils/exportBundle'
 import { coerceParam } from '~/utils/showCoerce'
@@ -33,6 +35,12 @@ export interface BuildShowInput {
   catalog: CatalogLookups
   /** Every port of the organization: all of them go to `hardware`, assigned or not. */
   orgPorts: PortResponseDto[]
+  /**
+   * AUDIO attachments per piece id, for the pieces whose files have been loaded. When given, every
+   * audio asset must be one of its piece's files (an error otherwise) and `meta.assets` lists where
+   * each file comes from. Pieces absent from the map are not checked.
+   */
+  audioByPiece?: Record<number, PieceAttachmentResponseDto[]>
   timelineName: string
   timelineId: number | null
   board?: string
@@ -60,7 +68,7 @@ export async function showHash(pkg: Omit<ShowPackage, 'meta'>): Promise<string> 
 }
 
 /** Assembles the package without hashing: synchronous, so tests can inspect every step. */
-export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPackage, 'meta'>, issues: ShowIssue[] } {
+export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPackage, 'meta'>, issues: ShowIssue[], assetRefs: ShowAssetRef[] } {
   const outputCatalog = input.outputCatalog ?? defaultCatalog
   const kinds = outputCatalog.kinds
   const issues: ShowIssue[] = []
@@ -73,6 +81,7 @@ export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPac
   const hardware = built.hardware
 
   const assets = { audio: new Set<string>(), video: new Set<string>() }
+  const assetRefs = new Map<string, ShowAssetRef>()
   const events: ShowEvent[] = []
   const itemById = new Map(plan.items.map(i => [i.itemId, i]))
 
@@ -124,7 +133,29 @@ export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPac
         }
         if (res.omitted) continue
         params[name] = res.value
-        if (pspec.asset && typeof res.value === 'string') assets[pspec.asset].add(res.value)
+        if (pspec.asset && typeof res.value === 'string') {
+          assets[pspec.asset].add(res.value)
+          if (pspec.asset === 'audio' && input.audioByPiece && item.pieceId in input.audioByPiece) {
+            const files = input.audioByPiece[item.pieceId] ?? []
+            const att = findAudioByAssetName(files, res.value)
+            if (!att) {
+              valid = false
+              issues.push(issue('error', 'E_ASSET_MISSING',
+                `El fitxer «${res.value}» del clip «${label}» no és entre els àudios de «${item.pieceName ?? item.itemId}»: tria'n un altre.`,
+                { clipId: step.clipId, port: port.name }))
+            } else {
+              assetRefs.set(res.value, { name: res.value, kind: 'audio', pieceId: item.pieceId, attachmentId: att.id, mimeType: att.mimeType, sizeBytes: att.sizeBytes, durationMs: att.durationMs ?? null })
+              const start = typeof step.params.start === 'number' ? step.params.start : 0
+              const time = typeof step.params.time === 'number' ? step.params.time : null
+              const window = audioFileWindow({ startSec: start, durationSec: time }, att.durationMs)
+              if (window.beyondEndSec > 0.05) {
+                issues.push(issue('warning', 'W_AUDIO_BEYOND_END',
+                  `El clip «${label}» (${step.startMs} ms) s'allarga ${window.beyondEndSec.toFixed(1)} s més enllà del final de «${att.originalFilename}» (${formatClock(att.durationMs)}): aquesta part no sonarà.`,
+                  { clipId: step.clipId, port: port.name }))
+              }
+            }
+          }
+        }
       }
       for (const name of requiredParams(action, animation)) {
         if (!(name in params) && !(name in step.params)) {
@@ -151,11 +182,11 @@ export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPac
     assets: { audio: [...assets.audio], video: [...assets.video] }
   }
   issues.push(...validateShowPackage({ ...body, meta: { name: '', timelineId: null, exportedAt: '', hash: '' } }, outputCatalog))
-  return { body, issues }
+  return { body, issues, assetRefs: [...assetRefs.values()] }
 }
 
 export async function buildShowPackage(input: BuildShowInput): Promise<BuildShowResult> {
-  const { body, issues } = assembleShowPackage(input)
+  const { body, issues, assetRefs } = assembleShowPackage(input)
   const errors = dedupe(issues.filter(i => i.level === 'error'))
   const warnings = dedupe(issues.filter(i => i.level === 'warning'))
   if (errors.length > 0) return { pkg: null, errors, warnings }
@@ -167,7 +198,9 @@ export async function buildShowPackage(input: BuildShowInput): Promise<BuildShow
       name: input.timelineName || 'Show',
       timelineId: input.timelineId,
       exportedAt: (input.now ?? (() => new Date().toISOString()))(),
-      hash
+      hash,
+      // Where each file comes from, when the editor knows (outside the hash: the show is the same).
+      ...(input.audioByPiece ? { assets: assetRefs } : {})
     },
     board: body.board,
     mode: body.mode,

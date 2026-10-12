@@ -52,6 +52,25 @@ function num(e: Event) { return Number((e.target as HTMLInputElement).value) }
         </svg>
       </button>
 
+      <button
+        class="tbtn"
+        :class="{ 'is-active': playback.audioEnabled }"
+        :title="playback.audioEnabled ? 'Silencia l\'àudio de la vista prèvia' : 'Activa l\'àudio de la vista prèvia'"
+        @click="playback.toggleAudio()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M11 5 6 9H2v6h4l5 4z" />
+          <template v-if="playback.audioEnabled">
+            <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+            <path d="M19 5.5a9 9 0 0 1 0 13" />
+          </template>
+          <template v-else>
+            <path d="m22 9-6 6" />
+            <path d="m16 9 6 6" />
+          </template>
+        </svg>
+      </button>
+
       <span class="ml-1 font-mono text-[12px] tabular-nums text-ink-soft">
         {{ fmt(playback.currentMs) }} / {{ fmt(scene.durationMs) }}
       </span>

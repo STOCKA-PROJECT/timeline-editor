@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
-import type { Page, PieceListItemDto, PieceResponseDto, PieceTypeActionResponseDto, PortResponseDto } from '~/types/api'
+import type { Page, PieceAttachmentResponseDto, PieceListItemDto, PieceResponseDto, PieceTypeActionResponseDto, PortResponseDto } from '~/types/api'
+import { isOutputKind, type OutputKind } from '~/types/catalog'
 
 /**
  * Read-only catalog of the organization's articles (pieces), its hardware ports and, lazily, the
@@ -16,6 +17,9 @@ export const useCatalogStore = defineStore('catalog', () => {
   const ports = ref<PortResponseDto[]>([])
   // True once the ports request succeeded: only then can a missing port id be called stale.
   const portsLoaded = ref(false)
+  // AUDIO attachments per piece (what `audio.play` clips can choose from), loaded lazily. A piece
+  // present with an empty list has been loaded and simply has no audio.
+  const audioByPiece = ref<Record<number, PieceAttachmentResponseDto[]>>({})
 
   async function load(slug: string) {
     orgSlug.value = slug
@@ -63,6 +67,49 @@ export const useCatalogStore = defineStore('catalog', () => {
       if (actions.some(a => a.id === actionId)) return Number(typeId)
     }
     return undefined
+  }
+
+  /** Output kind of the piece type (of this piece) that owns an action, or null for inventory-only types. */
+  function kindOfAction(piece: PieceListItemDto | undefined, actionId: number): OutputKind | null {
+    const typeId = typeIdOfAction(actionId)
+    const kind = piece?.pieceTypes.find(t => t.id === typeId)?.kind
+    return isOutputKind(kind) ? kind : null
+  }
+
+  /** Pieces on the board whose types drive an audio output (they may carry audio files). */
+  function isAudioPiece(piece: PieceListItemDto | undefined): boolean {
+    return !!piece?.pieceTypes.some(t => t.kind === 'audio')
+  }
+
+  /** Lazily loads (and caches) the AUDIO attachments of a piece. A failed request leaves it unloaded. */
+  async function ensureAudioForPiece(pieceId: number): Promise<PieceAttachmentResponseDto[]> {
+    if (audioByPiece.value[pieceId]) return audioByPiece.value[pieceId]!
+    if (!orgSlug.value) return []
+    try {
+      const api = useApi()
+      const list = await api<PieceAttachmentResponseDto[]>(
+        `/organizations/${orgSlug.value}/pieces/${pieceId}/attachments`,
+        { query: { kind: 'AUDIO' } }
+      )
+      audioByPiece.value = { ...audioByPiece.value, [pieceId]: list }
+      return list
+    } catch {
+      return []
+    }
+  }
+
+  function audioForPiece(pieceId: number): PieceAttachmentResponseDto[] {
+    return audioByPiece.value[pieceId] ?? []
+  }
+
+  function audioLoadedForPiece(pieceId: number): boolean {
+    return audioByPiece.value[pieceId] !== undefined
+  }
+
+  /** Same-origin URL of an attachment's bytes (the backend streams them; no bucket CORS involved). */
+  function attachmentContentUrl(pieceId: number, attachmentId: number): string | null {
+    if (!orgSlug.value) return null
+    return `/api/organizations/${orgSlug.value}/pieces/${pieceId}/attachments/${attachmentId}/content`
   }
 
   function pieceById(id: number): PieceListItemDto | undefined {
@@ -138,6 +185,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     pieceDetails.value = {}
     ports.value = []
     portsLoaded.value = false
+    audioByPiece.value = {}
   }
 
   return {
@@ -158,6 +206,13 @@ export const useCatalogStore = defineStore('catalog', () => {
     portById,
     portsForPiece,
     typeIdOfAction,
+    kindOfAction,
+    isAudioPiece,
+    audioByPiece,
+    ensureAudioForPiece,
+    audioForPiece,
+    audioLoadedForPiece,
+    attachmentContentUrl,
     reset
   }
 })

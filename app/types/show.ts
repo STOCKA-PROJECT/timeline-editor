@@ -23,12 +23,26 @@ export interface ShowEvent {
   params: Record<string, unknown>
 }
 
+/** Where a file listed in `assets` comes from in Stocka (an attachment of a piece). */
+export interface ShowAssetRef {
+  /** The asset name used by the events: `<attachmentId>-<filename>`. */
+  name: string
+  kind: 'audio' | 'video'
+  pieceId: number
+  attachmentId: number
+  mimeType: string
+  sizeBytes: number
+  durationMs: number | null
+}
+
 export interface ShowMeta {
   name: string
   timelineId: number | null
   exportedAt: string
   /** `sha256:` + hex digest of the canonical JSON of the show description (meta excluded). */
   hash: string
+  /** Origin of every asset, when the editor knows it (outside the hash). */
+  assets?: ShowAssetRef[]
 }
 
 export interface ShowPackage {

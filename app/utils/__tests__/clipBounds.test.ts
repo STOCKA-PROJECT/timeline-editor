@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assignLanes, constrainMove, constrainResize, freeRange, snapTo } from '~/utils/clipBounds'
+import { assignLanes, constrainMove, constrainResize, constrainResizeStart, freeRange, snapTo } from '~/utils/clipBounds'
 
 const a = { id: 'a', startMs: 0, durationMs: 1000 }
 const b = { id: 'b', startMs: 3000, durationMs: 1000 }
@@ -132,5 +132,37 @@ describe('assignLanes', () => {
 
   it('an empty track still has one lane', () => {
     expect(assignLanes([]).count).toBe(1)
+  })
+})
+
+describe('constrainResize with a maximum', () => {
+  it('caps the duration at maxMs (the rest of an audio file) but never under minMs', () => {
+    expect(constrainResize(a, [], 5000, { allowOverlap: true, maxMs: 2500 })).toBe(2500)
+    expect(constrainResize(a, [], 500, { allowOverlap: true, maxMs: 2500 })).toBe(500)
+    expect(constrainResize(a, [], 5000, { allowOverlap: true, maxMs: 20, minMs: 100 })).toBe(100)
+  })
+})
+
+describe('constrainResizeStart', () => {
+  it('moves the left edge on the grid while the end stays put, never shorter than minMs', () => {
+    expect(constrainResizeStart(b, track, 3220, { allowOverlap: true })).toBe(3200)
+    expect(constrainResizeStart(b, track, 3990, { allowOverlap: true, minMs: 100 })).toBe(3900)
+    expect(constrainResizeStart(b, track, 4500, { allowOverlap: true, minMs: 100 })).toBe(3900)
+  })
+
+  it('snaps to the previous clip end and the extra targets', () => {
+    expect(constrainResizeStart(b, track, 1030, { allowOverlap: true, snapMs: 60 })).toBe(1000)
+    expect(constrainResizeStart(b, track, 2040, { allowOverlap: true, snapMs: 60, snapTargets: [2000] })).toBe(2000)
+    expect(constrainResizeStart(b, track, 2040, { allowOverlap: true, snapMs: 0, snapTargets: [2000] })).toBe(2050)
+  })
+
+  it('respects minStartMs (an audio clip cannot start before its file) and never goes below 0', () => {
+    expect(constrainResizeStart(b, track, 1500, { allowOverlap: true, minStartMs: 2000 })).toBe(2000)
+    expect(constrainResizeStart(a, [], -500, { allowOverlap: true })).toBe(0)
+  })
+
+  it('stops at the previous clip when overlapping is not allowed', () => {
+    expect(constrainResizeStart(b, track, 500, { allowOverlap: false })).toBe(1000)
+    expect(constrainResizeStart(b, track, 500, { allowOverlap: true })).toBe(500)
   })
 })

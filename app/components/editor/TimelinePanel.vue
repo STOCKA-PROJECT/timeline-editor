@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { SceneClip, SceneLayer, SceneTrack } from '~/types/editor'
-import { assignLanes, constrainMove, constrainResize } from '~/utils/clipBounds'
+import { assignLanes, constrainMove, constrainResize, constrainResizeStart } from '~/utils/clipBounds'
 import { rulerTicks } from '~/utils/rulerTicks'
 import { DEFAULT_CLIP_MS } from '~/stores/scene'
 
@@ -8,6 +8,14 @@ const scene = useSceneStore()
 const selection = useSelectionStore()
 const catalog = useCatalogStore()
 const playback = usePlaybackStore()
+const { audioClipOf } = useAudioClips()
+
+// ---- audio clips: waveform inside the clip and trimming that keeps the file in place ----
+/** Audio info per clip id (null for the rest), recomputed as clips, actions or files change. */
+const audioInfos = computed(() => new Map(scene.clips.map(c => [c.id, audioClipOf(c)])))
+function audioOf(clip: SceneClip) {
+  return audioInfos.value.get(clip.id) ?? null
+}
 
 const pxPerMs = ref(0.04)
 const lanesRef = ref<HTMLDivElement | null>(null)
@@ -99,7 +107,10 @@ function clipLabel(c: SceneClip): string {
   const item = track ? scene.itemById(track.itemId) : undefined
   const action = catalog.actionsForPiece(catalog.pieceById(item?.pieceId ?? -1))
     .find(a => a.id === c.pieceTypeActionId)
-  return action?.displayName ?? c.label ?? 'Acció'
+  const name = action?.displayName ?? c.label ?? 'Acció'
+  const audio = audioOf(c)
+  if (audio) return audio.attachment ? `${name} · ${audio.attachment.originalFilename}` : audio.assetName ? `${name} · ${audio.assetName}` : `${name} · sense fitxer`
+  return name
 }
 
 // ---- add clip ----
@@ -142,17 +153,26 @@ function onLaneDblClick(track: SceneTrack, e: MouseEvent) {
 const SNAP_PX = 8
 
 /**
- * Drags a clip (or its right edge). Clips may overlap (a piece can run several actions at once);
- * their edges are magnetised to the neighbours, the start of the scene and the playhead (Alt
- * disables the snap) and the start is rounded to the grid.
+ * Drags a clip, its right edge or its left edge. Clips may overlap (a piece can run several
+ * actions at once); their edges are magnetised to the neighbours, the start of the scene and the
+ * playhead (Alt disables the snap) and the start is rounded to the grid. An audio clip behaves
+ * like in any editor: trimming its left edge moves the in-point of the file (the sound stays in
+ * place), it cannot start before the file does, and its right edge stops at the end of the file.
  */
-function startClipDrag(clip: SceneClip, e: PointerEvent, mode: 'move' | 'resize') {
+function startClipDrag(clip: SceneClip, e: PointerEvent, mode: 'move' | 'resize' | 'resize-start') {
   e.preventDefault()
   e.stopPropagation()
   selection.selectClip(clip.id)
   const startX = e.clientX
   const orig = { id: clip.id, startMs: clip.startMs, durationMs: clip.durationMs }
   const others = scene.clipsForTrack(clip.trackId).filter(c => c.id !== clip.id)
+  const audio = audioOf(clip)
+  const fileStartSec = audio?.range.startSec ?? 0
+  // Longest the clip may be: the rest of the file after its in-point (when the length is the play time).
+  const maxMs = audio?.durationEditable && audio.fileDurationMs != null ? Math.max(100, audio.fileDurationMs - fileStartSec * 1000) : undefined
+  // Earliest the left edge may go: the in-point cannot become negative.
+  const minStartMs = audio?.startEditable ? Math.max(0, orig.startMs - fileStartSec * 1000) : undefined
+  const origParams = { ...clip.paramValues }
 
   function onMove(ev: PointerEvent) {
     const deltaMs = (ev.clientX - startX) / pxPerMs.value
@@ -163,8 +183,16 @@ function startClipDrag(clip: SceneClip, e: PointerEvent, mode: 'move' | 'resize'
     }
     if (mode === 'move') {
       scene.updateClip(clip.id, { startMs: constrainMove(orig, others, orig.startMs + deltaMs, opts) })
+    } else if (mode === 'resize') {
+      scene.updateClip(clip.id, { durationMs: constrainResize(orig, others, orig.durationMs + deltaMs, { ...opts, maxMs }) })
     } else {
-      scene.updateClip(clip.id, { durationMs: constrainResize(orig, others, orig.durationMs + deltaMs, opts) })
+      const newStart = constrainResizeStart(orig, others, orig.startMs + deltaMs, { ...opts, minStartMs })
+      const partial: Partial<SceneClip> = { startMs: newStart, durationMs: orig.startMs + orig.durationMs - newStart }
+      if (audio?.startEditable) {
+        const inPoint = Math.max(0, Math.round((fileStartSec + (newStart - orig.startMs) / 1000) * 1000) / 1000)
+        partial.paramValues = { ...origParams, start: inPoint }
+      }
+      scene.updateClip(clip.id, partial)
     }
   }
   function onUp() {
@@ -316,9 +344,23 @@ function selectTrackItem(track: SceneTrack) {
                 :class="selection.selectedClipId === clip.id ? 'border-accent bg-accent-soft ring-1 ring-accent' : 'border-accent/50 bg-accent-soft/70'"
                 :style="{ left: clipLeft(clip) + 'px', width: clipWidth(clip) + 'px', top: clipTop(clip) + 'px' }"
                 @pointerdown="startClipDrag(clip, $event, 'move')">
-                <span class="truncate px-1.5">{{ clipLabel(clip) }}</span>
+                <!-- Audio clips show the window of the file they play -->
+                <EditorAudioWave
+                  v-if="audioOf(clip)?.url"
+                  class="pointer-events-none absolute left-0 top-0.5 opacity-70"
+                  :url="audioOf(clip)!.url"
+                  :from-sec="audioOf(clip)!.range.startSec"
+                  :to-sec="audioOf(clip)!.range.startSec + clip.durationMs / 1000"
+                  :width="clipWidth(clip)"
+                  :height="LANE_H - 8" />
+                <span class="relative truncate px-2">{{ clipLabel(clip) }}</span>
+                <span
+                  class="absolute left-0 top-0 h-full w-1.5 cursor-ew-resize bg-accent/40"
+                  title="Retalla el principi"
+                  @pointerdown="startClipDrag(clip, $event, 'resize-start')" />
                 <span
                   class="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize bg-accent/40"
+                  title="Retalla el final"
                   @pointerdown="startClipDrag(clip, $event, 'resize')" />
               </div>
             </div>

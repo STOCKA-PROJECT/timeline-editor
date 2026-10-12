@@ -94,6 +94,8 @@ export function constrainMove(clip: ClipSpan, others: ClipSpan[], desiredStart: 
 export interface ResizeOptions extends MoveOptions {
   /** Shortest allowed clip (ms). */
   minMs?: number
+  /** Longest allowed clip (ms), e.g. the rest of an audio file; unbounded when omitted. */
+  maxMs?: number
 }
 
 /**
@@ -102,16 +104,39 @@ export interface ResizeOptions extends MoveOptions {
  * allowed) reaching into the next clip.
  */
 export function constrainResize(clip: ClipSpan, others: ClipSpan[], desiredDuration: number, opts: ResizeOptions = {}): number {
-  const { gridMs = 50, snapMs = 0, snapTargets = [], minMs = 100, allowOverlap = false } = opts
+  const { gridMs = 50, snapMs = 0, snapTargets = [], minMs = 100, maxMs, allowOverlap = false } = opts
   const range = freeRange(clip, others)
   let duration = gridMs > 0 ? Math.round(desiredDuration / gridMs) * gridMs : desiredDuration
   if (snapMs > 0) {
     const endTargets = [range.nextStart, ...snapTargets].map(t => t - clip.startMs)
     duration = snapTo(duration, endTargets, snapMs)
   }
+  if (maxMs != null) duration = Math.min(duration, Math.max(minMs, maxMs))
   if (allowOverlap) return Math.max(minMs, duration)
   const maxDuration = Math.max(minMs, range.nextStart - clip.startMs)
   return Math.min(maxDuration, Math.max(minMs, duration))
+}
+
+export interface ResizeStartOptions extends MoveOptions {
+  /** Shortest allowed clip (ms). */
+  minMs?: number
+  /** Earliest position the left edge may reach (e.g. an audio clip cannot start before its file does). */
+  minStartMs?: number
+}
+
+/**
+ * Start of a clip resized from its left edge (its end stays put): rounded to the grid, magnetised
+ * to the previous clip's end and the extra targets, never later than `end - minMs`, never earlier
+ * than `minStartMs` nor (unless overlapping is allowed) than the previous clip's end.
+ */
+export function constrainResizeStart(clip: ClipSpan, others: ClipSpan[], desiredStart: number, opts: ResizeStartOptions = {}): number {
+  const { gridMs = 50, snapMs = 0, snapTargets = [], minMs = 100, minStartMs = 0, allowOverlap = false } = opts
+  const clipEnd = end(clip)
+  const range = freeRange(clip, others)
+  let start = gridMs > 0 ? Math.round(desiredStart / gridMs) * gridMs : desiredStart
+  if (snapMs > 0) start = snapTo(start, [range.prevEnd, ...snapTargets], snapMs)
+  const lower = Math.max(0, minStartMs, allowOverlap ? 0 : range.prevEnd)
+  return Math.min(clipEnd - minMs, Math.max(lower, start))
 }
 
 /**

@@ -40,6 +40,7 @@ onMounted(async () => {
 
 // Autosave once mounted.
 useAutosave()
+useAudioPreview()
 
 // Undo/redo keyboard shortcuts (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z or Ctrl+Y), ignored while typing.
 function onKeydown(e: KeyboardEvent) {

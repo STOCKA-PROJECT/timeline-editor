@@ -13,6 +13,8 @@ export const usePlaybackStore = defineStore('playback', () => {
   const playing = ref(false)
   const rangeStartMs = ref(0)
   const loop = ref(false)
+  /** Whether the audio clips sound during preview playback (see `useAudioPreview`). */
+  const audioEnabled = ref(true)
   let rafId: number | null = null
   let lastTs = 0
 
@@ -75,6 +77,10 @@ export const usePlaybackStore = defineStore('playback', () => {
     loop.value = !loop.value
   }
 
+  function toggleAudio() {
+    audioEnabled.value = !audioEnabled.value
+  }
+
   /** The clip active at the current time on a given track (last one wins on overlap). */
   function activeClipForTrack(trackId: string): SceneClip | null {
     let active: SceneClip | null = null
@@ -98,6 +104,7 @@ export const usePlaybackStore = defineStore('playback', () => {
     playing,
     rangeStartMs,
     loop,
+    audioEnabled,
     endMs,
     play,
     pause,
@@ -106,6 +113,7 @@ export const usePlaybackStore = defineStore('playback', () => {
     stop,
     setRangeStart,
     toggleLoop,
+    toggleAudio,
     activeClipForTrack,
     activeItemIds
   }

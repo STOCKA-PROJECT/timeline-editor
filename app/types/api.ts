@@ -20,7 +20,7 @@ export interface OrganizationResponseDto {
 }
 
 export type PieceStatus = 'ACTIVE' | 'PENDING'
-export type PieceAttachmentKind = 'IMAGE' | 'DOCUMENT'
+export type PieceAttachmentKind = 'IMAGE' | 'DOCUMENT' | 'AUDIO'
 
 export interface PieceTypeRefDto {
   id: number
@@ -46,6 +46,8 @@ export interface PieceAttachmentResponseDto {
   originalFilename: string
   mimeType: string
   sizeBytes: number
+  /** Audio length measured when uploading (AUDIO only; null when unknown). */
+  durationMs?: number | null
   createdAt: string
 }
 

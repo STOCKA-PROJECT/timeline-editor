@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import type { ActionParameterDto } from '~/types/api'
 import { catalog as outputCatalog, actionParams, isOutputKind, type CatalogType } from '~/types/catalog'
+import { assetNameFor, audioFileWindow, formatClock } from '~/utils/audioAssets'
+import { getAudioContext, loadDecodedAudio } from '~/utils/audioCache'
 import { coerceParam, parseRgb } from '~/utils/showCoerce'
 
 const scene = useSceneStore()
 const selection = useSelectionStore()
 const catalog = useCatalogStore()
+const config = useRuntimeConfig()
+const { audioClipOf } = useAudioClips()
 
 const clip = computed(() => (selection.selectedClipId ? scene.clipById(selection.selectedClipId) : null) ?? null)
 const item = computed(() => {
@@ -23,8 +27,123 @@ const selectedAction = computed(() => actions.value.find(a => a.id === clip.valu
 // "Duración" field below — never as a normal param input or a fixed value.
 const durationParam = computed(() => selectedAction.value?.parameters.find(p => p.isDuration) ?? null)
 // Only dynamic params are editable per clip; static ones use the value fixed on the action.
+// An audio clip edits its file and in-point in the dedicated block below, not as plain inputs.
+const AUDIO_BLOCK_PARAMS = new Set(['audio_name', 'start'])
 const dynamicParams = computed(() =>
-  selectedAction.value?.parameters.filter(p => p.dynamic && !p.isDuration) ?? [])
+  selectedAction.value?.parameters.filter(p => p.dynamic && !p.isDuration && !(audioInfo.value && AUDIO_BLOCK_PARAMS.has(p.name))) ?? [])
+
+// ---- audio clips (audio.play): file, window of the file, listen ----
+const audioInfo = computed(() => (clip.value ? audioClipOf(clip.value) : null))
+const audioFiles = computed(() => (piece.value ? catalog.audioForPiece(piece.value.id) : []))
+const audioLoaded = computed(() => !!piece.value && catalog.audioLoadedForPiece(piece.value.id))
+const fileSec = computed(() => (audioInfo.value?.fileDurationMs != null ? audioInfo.value.fileDurationMs / 1000 : null))
+/** Seconds of the file that will sound (cut at the end of the file when its length is known). */
+const audioWindow = computed(() => {
+  const info = audioInfo.value
+  if (!info) return null
+  const w = audioFileWindow(info.range, info.fileDurationMs)
+  return { fromSec: w.fromSec, toSec: w.toSec ?? (fileSec.value ?? w.fromSec), beyondEndSec: w.beyondEndSec }
+})
+/** End of the clip's window as the user asked for it (may run past the end of the file). */
+const audioEndSec = computed(() => {
+  const info = audioInfo.value
+  if (!info) return 0
+  return info.range.startSec + (info.range.durationSec ?? Math.max(0, (fileSec.value ?? 0) - info.range.startSec))
+})
+const pieceUrl = computed(() => {
+  const base = (config.public.stockaUrl as string).replace(/\/+$/, '')
+  return piece.value && scene.orgSlug ? `${base}/dashboard/${scene.orgSlug}/articulos/${piece.value.id}` : base
+})
+
+/** Points the clip at one of the piece's files: whole file by default (in-point 0, clip as long as the file). */
+function setAudioFile(attachmentId: number) {
+  const info = audioInfo.value
+  const att = audioFiles.value.find(a => a.id === attachmentId)
+  if (!clip.value || !info || !att) return
+  const paramValues: Record<string, unknown> = { ...clip.value.paramValues, audio_name: assetNameFor(att) }
+  if (info.startEditable) paramValues.start = 0
+  const durationMs = info.durationEditable && att.durationMs ? Math.max(100, att.durationMs) : clip.value.durationMs
+  scene.updateClip(clip.value.id, { paramValues, durationMs })
+}
+
+/** In-point of the file; the clip keeps its length unless that would run past the end of the file. */
+function setAudioStart(sec: number) {
+  const info = audioInfo.value
+  if (!clip.value || !info || !info.startEditable) return
+  const start = Math.max(0, Math.round((Number.isFinite(sec) ? sec : 0) * 1000) / 1000)
+  const bounded = fileSec.value != null ? Math.min(start, fileSec.value) : start
+  const partial: Partial<typeof clip.value> = { paramValues: { ...clip.value.paramValues, start: bounded } }
+  if (info.durationEditable && fileSec.value != null) {
+    partial.durationMs = Math.max(100, Math.min(clip.value.durationMs, Math.round((fileSec.value - bounded) * 1000)))
+  }
+  scene.updateClip(clip.value.id, partial)
+}
+
+/** Out-point of the file: sets the clip length (its play time) from the in-point. */
+function setAudioEnd(sec: number) {
+  const info = audioInfo.value
+  if (!clip.value || !info || !info.durationEditable) return
+  const end = fileSec.value != null ? Math.min(sec, fileSec.value) : sec
+  scene.updateClip(clip.value.id, { durationMs: Math.max(100, Math.round((end - info.range.startSec) * 1000)) })
+}
+
+function useWholeFile() {
+  const info = audioInfo.value
+  if (!clip.value || !info) return
+  const partial: Partial<typeof clip.value> = {}
+  if (info.startEditable) partial.paramValues = { ...clip.value.paramValues, start: 0 }
+  if (info.durationEditable && info.fileDurationMs) partial.durationMs = Math.max(100, info.fileDurationMs)
+  scene.updateClip(clip.value.id, partial)
+}
+
+// Listen to the selected window (independent from the timeline preview).
+let previewSource: AudioBufferSourceNode | null = null
+const previewPlaying = ref(false)
+function stopPreviewAudio() {
+  try { previewSource?.stop() } catch { /* already ended */ }
+  previewSource = null
+  previewPlaying.value = false
+}
+async function togglePreviewAudio() {
+  if (previewPlaying.value) {
+    stopPreviewAudio()
+    return
+  }
+  const info = audioInfo.value
+  if (!info?.url) return
+  const ctx = getAudioContext()
+  await ctx.resume()
+  const decoded = await loadDecodedAudio(info.url)
+  const w = audioFileWindow(info.range, decoded.durationMs)
+  const length = (w.toSec ?? decoded.buffer.duration) - w.fromSec
+  if (length <= 0) return
+  const src = ctx.createBufferSource()
+  src.buffer = decoded.buffer
+  src.connect(ctx.destination)
+  src.onended = () => {
+    if (previewSource === src) stopPreviewAudio()
+  }
+  src.start(0, w.fromSec, length)
+  previewSource = src
+  previewPlaying.value = true
+}
+watch(clip, stopPreviewAudio)
+onBeforeUnmount(stopPreviewAudio)
+
+// The waveform fills the panel width.
+const waveBox = ref<HTMLElement | null>(null)
+const waveWidth = ref(240)
+let waveObserver: ResizeObserver | null = null
+watch(waveBox, (el) => {
+  waveObserver?.disconnect()
+  waveObserver = null
+  if (!el || typeof ResizeObserver === 'undefined') return
+  waveObserver = new ResizeObserver(([entry]) => {
+    if (entry) waveWidth.value = Math.max(1, Math.floor(entry.contentRect.width))
+  })
+  waveObserver.observe(el as Element)
+})
+onBeforeUnmount(() => waveObserver?.disconnect())
 const staticParams = computed(() =>
   selectedAction.value?.parameters.filter(p => !p.dynamic && !p.isDuration) ?? [])
 
@@ -172,6 +291,7 @@ watch(piece, p => {
   if (p) {
     catalog.ensureActionsForPiece(p)
     catalog.ensurePieceDetail(p.id)
+    if (catalog.isAudioPiece(p)) catalog.ensureAudioForPiece(p.id)
   }
 }, { immediate: true })
 
@@ -331,6 +451,57 @@ function togglePort(portId: number, checked: boolean) {
           ? 'Durada fixa definida al tipus d\'article.'
           : 'Aquest temps defineix la longitud del clip.' }}
       </p>
+
+      <!-- Audio clip: which file and which part of it -->
+      <div v-if="audioInfo" class="flex flex-col gap-2 border-t border-line pt-3">
+        <span class="text-[11px] font-semibold uppercase tracking-[.08em] text-ink-muted">Fitxer d'àudio</span>
+        <select class="field" :value="audioInfo.attachment?.id ?? ''"
+          @change="setAudioFile(Number(($event.target as HTMLSelectElement).value))">
+          <option value="" disabled>{{ audioFiles.length ? 'Tria un fitxer' : 'Cap fitxer d\'àudio' }}</option>
+          <option v-for="a in audioFiles" :key="a.id" :value="a.id">{{ a.originalFilename }} · {{ formatClock(a.durationMs) }}</option>
+        </select>
+        <p v-if="!audioFiles.length && audioLoaded" class="text-[11.5px] text-ink-muted">
+          Aquest article no té cap fitxer d'àudio.
+          <a class="underline" :href="pieceUrl" target="_blank" rel="noopener">Puja'n un a la fitxa de l'article</a>.
+        </p>
+        <p v-else-if="audioInfo.assetName && !audioInfo.attachment && audioLoaded" class="text-[11.5px] text-danger">
+          El fitxer «{{ audioInfo.assetName }}» ja no és entre els àudios de l'article. Tria'n un altre.
+        </p>
+        <template v-if="audioInfo.attachment">
+          <div ref="waveBox" class="h-10 w-full overflow-hidden rounded-[6px] border border-line bg-bg-soft">
+            <EditorAudioWave :url="audioInfo.url" :from-sec="0" :to-sec="null" :width="waveWidth" :height="40" :highlight="audioWindow" />
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div class="flex flex-col gap-1">
+              <label class="text-[12px] font-medium text-ink-soft">Des del segon</label>
+              <input class="field" type="number" step="0.05" min="0" :max="fileSec ?? undefined"
+                :value="audioInfo.range.startSec.toFixed(2)"
+                :disabled="!audioInfo.startEditable"
+                @change="setAudioStart(Number(($event.target as HTMLInputElement).value))">
+            </div>
+            <div class="flex flex-col gap-1">
+              <label class="text-[12px] font-medium text-ink-soft">Fins al segon</label>
+              <input class="field" type="number" step="0.05" min="0" :max="fileSec ?? undefined"
+                :value="audioEndSec.toFixed(2)"
+                :disabled="!audioInfo.durationEditable"
+                @change="setAudioEnd(Number(($event.target as HTMLInputElement).value))">
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button class="btn !h-7 !px-2 !text-[12px]" :disabled="!audioInfo.durationEditable && !audioInfo.startEditable" @click="useWholeFile">Tot el fitxer</button>
+            <button class="btn !h-7 !px-2 !text-[12px]" @click="togglePreviewAudio">{{ previewPlaying ? 'Atura' : 'Escolta el tram' }}</button>
+            <span class="text-[11px] text-ink-muted">Fitxer de {{ formatClock(audioInfo.fileDurationMs) }}</span>
+          </div>
+          <p v-if="audioWindow && audioWindow.beyondEndSec > 0.05" class="text-[11px] text-danger">
+            El clip s'allarga {{ audioWindow.beyondEndSec.toFixed(1) }} s més enllà del final del fitxer: aquesta part no sonarà.
+          </p>
+          <p v-if="!audioInfo.startEditable || !audioInfo.durationEditable" class="text-[11px] text-ink-muted">
+            {{ !audioInfo.startEditable ? 'El segon d\'inici és fix al tipus d\'article.' : '' }}
+            {{ !audioInfo.durationEditable ? 'La durada no depèn del clip: afegeix el paràmetre «time» com a durada a l\'acció.' : '' }}
+          </p>
+          <p v-else class="text-[11px] text-ink-muted">Arrossega les vores del clip a la línia de temps per retallar el tram.</p>
+        </template>
+      </div>
 
       <div v-if="dynamicParams.length" class="flex flex-col gap-3 border-t border-line pt-3">
         <span class="text-[11px] font-semibold uppercase tracking-[.08em] text-ink-muted">Paràmetres</span>

@@ -29,6 +29,7 @@ const saveLabel = computed(() => {
 // seguretat" downloads the editor document plus the execution plan, which "Importar" reads back.
 const selection = useSelectionStore()
 const catalog = useCatalogStore()
+const { ensureAudioLoaded } = useAudioClips()
 const importInput = ref<HTMLInputElement | null>(null)
 const importError = ref<string | null>(null)
 const exportError = ref<string | null>(null)
@@ -62,11 +63,14 @@ async function exportShow() {
   exportError.value = null
   try {
     await ensureActionsLoaded()
+    // Audio files of the audio pieces: the package lists where every asset comes from.
+    await ensureAudioLoaded()
     const fileName = `${fileBaseName()}.show.json`
     const result = await buildShowPackage({
       doc: scene.buildDocument(),
       catalog,
       orgPorts: catalog.ports,
+      audioByPiece: catalog.audioByPiece,
       timelineName: scene.timelineName,
       timelineId: scene.timelineId
     })

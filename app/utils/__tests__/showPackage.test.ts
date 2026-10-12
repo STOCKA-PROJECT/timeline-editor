@@ -188,3 +188,74 @@ describe('buildShowPackage', () => {
     expect(errors.filter(e => e.code === 'E_NO_PORT')).toHaveLength(3)
   })
 })
+
+describe('audio assets', () => {
+  const AUDIO_PLAY = fx.actionsByType[fx.AUDIO_TYPE]![0]!
+  const withTrim = {
+    ...AUDIO_PLAY,
+    parameters: [
+      ...AUDIO_PLAY.parameters,
+      { name: 'start', displayName: 'Inici', type: 'DECIMAL' as const, required: false, dynamic: true },
+      { name: 'time', displayName: 'Temps', type: 'DECIMAL' as const, required: false, dynamic: true, isDuration: true }
+    ]
+  }
+  const trimLookups = { ...fx.catalogLookups, actionsForPiece: (p: any) => fx.catalogLookups.actionsForPiece(p).map(a => (a.id === 31 ? withTrim : a)) }
+  const nature = { id: 12, kind: 'AUDIO' as const, originalFilename: 'nature.mp3', mimeType: 'audio/mpeg', sizeBytes: 2048, durationMs: 61000, createdAt: '' }
+
+  it('exports start and the clip length as time, in seconds', () => {
+    const doc = fx.document()
+    const c06 = doc.clips.find(c => c.id === 'c06')!
+    c06.paramValues = { audio_name: '12-nature.mp3', start: 2.5 }
+    c06.durationMs = 12500
+    const { body, issues } = assembleShowPackage(input({ doc, catalog: trimLookups }))
+    expect(issues.filter(i => i.level === 'error')).toEqual([])
+    const ev = body.timeline.find(e => e.target === 'Audio' && e.action === 'play')!
+    expect(ev.params).toEqual({ audio_name: '12-nature.mp3', start: 2.5, time: 12.5 })
+    expect(body.assets.audio).toEqual(['12-nature.mp3'])
+  })
+
+  it('lists where each file comes from in meta.assets when the files are known', async () => {
+    const doc = fx.document()
+    doc.clips.find(c => c.id === 'c06')!.paramValues = { audio_name: '12-nature.mp3' }
+    const { pkg, errors } = await buildShowPackage(input({ doc, audioByPiece: { 8: [nature] } }))
+    expect(errors).toEqual([])
+    expect(pkg!.meta.assets).toEqual([
+      { name: '12-nature.mp3', kind: 'audio', pieceId: 8, attachmentId: 12, mimeType: 'audio/mpeg', sizeBytes: 2048, durationMs: 61000 }
+    ])
+    // Same show, same hash: meta is outside it.
+    const { pkg: plain } = await buildShowPackage(input({ doc }))
+    expect(plain!.meta.assets).toBeUndefined()
+    expect(plain!.meta.hash).toBe(pkg!.meta.hash)
+  })
+
+  it('refuses a file that is not among the piece\'s audios once they are loaded, and ignores unloaded pieces', () => {
+    const doc = fx.document()
+    doc.clips.find(c => c.id === 'c06')!.paramValues = { audio_name: '99-gone.mp3' }
+    const loaded = assembleShowPackage(input({ doc, audioByPiece: { 8: [nature] } }))
+    expect(codes(loaded.issues.filter(i => i.level === 'error'))).toContain('E_ASSET_MISSING')
+    expect(loaded.body.timeline.some(e => e.action === 'play')).toBe(false)
+    const notLoaded = assembleShowPackage(input({ doc, audioByPiece: {} }))
+    expect(codes(notLoaded.issues.filter(i => i.level === 'error'))).not.toContain('E_ASSET_MISSING')
+    expect(notLoaded.assetRefs).toEqual([])
+  })
+
+  it('warns when the clip runs past the end of the file', () => {
+    const doc = fx.document()
+    const c06 = doc.clips.find(c => c.id === 'c06')!
+    c06.paramValues = { audio_name: '12-nature.mp3', start: 50 }
+    c06.durationMs = 20000
+    const { issues } = assembleShowPackage(input({ doc, catalog: trimLookups, audioByPiece: { 8: [nature] } }))
+    const w = issues.find(i => i.code === 'W_AUDIO_BEYOND_END')
+    expect(w?.level).toBe('warning')
+    expect(w?.message).toContain('9.0 s')
+    c06.durationMs = 11000
+    expect(codes(assembleShowPackage(input({ doc, catalog: trimLookups, audioByPiece: { 8: [nature] } })).issues)).not.toContain('W_AUDIO_BEYOND_END')
+  })
+
+  it('a negative start is rejected by the catalog minimum', () => {
+    const doc = fx.document()
+    doc.clips.find(c => c.id === 'c06')!.paramValues = { audio_name: '12-nature.mp3', start: -1 }
+    const { issues } = assembleShowPackage(input({ doc, catalog: trimLookups }))
+    expect(codes(issues.filter(i => i.level === 'error'))).toContain('E_PARAM_RANGE')
+  })
+})
