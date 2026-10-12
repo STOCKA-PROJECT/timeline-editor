@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ActionParameterDto } from '~/types/api'
 import { catalog as outputCatalog, actionParams, isOutputKind, type CatalogType } from '~/types/catalog'
-import { parseRgb } from '~/utils/showCoerce'
+import { coerceParam, parseRgb } from '~/utils/showCoerce'
 
 const scene = useSceneStore()
 const selection = useSelectionStore()
@@ -50,6 +50,53 @@ const catalogParamTypes = computed<Record<string, CatalogType>>(() => {
     Object.entries(actionParams(spec, typeof animation === 'string' && animation ? animation : null))
       .map(([name, p]) => [name, p.type]))
 })
+// ---- LED preview ----
+/** Animation the clip will run: fixed on the action or chosen on the clip (null when unknown). */
+const selectedAnimation = computed<string | null>(() => {
+  const animParam = selectedAction.value?.parameters.find(p => p.name === 'animation_type')
+  if (!animParam) return null
+  const v = animParam.dynamic ? clip.value?.paramValues.animation_type : animParam.staticValue
+  return typeof v === 'string' && v ? v : null
+})
+const previewAction = computed<'animate' | 'fill' | 'clear' | null>(() => {
+  const name = selectedAction.value?.name
+  if (!actionKind.value || !['led_strip', 'led_segment'].includes(actionKind.value)) return null
+  return name === 'animate' || name === 'fill' || name === 'clear' ? name : null
+})
+/** Number of LEDs of the first port of the action's type assigned to the item (44 when unknown). */
+const previewPixels = computed(() => {
+  const typeId = selectedAction.value ? catalog.typeIdOfAction(selectedAction.value.id) : undefined
+  for (const id of item.value?.ports ?? []) {
+    const port = catalog.portById(id)
+    if (!port || port.pieceTypeId !== typeId) continue
+    const cfg = (port.config ?? {}) as Record<string, unknown>
+    if (port.kind === 'led_segment' && typeof cfg.first === 'number' && typeof cfg.last === 'number') return Math.abs(cfg.last - cfg.first) + 1
+    if (port.kind === 'led_strip' && typeof cfg.length === 'number') return cfg.length
+  }
+  return 44
+})
+/**
+ * Parameter values the preview runs with: the clip's dynamic values or the action's fixed ones,
+ * coerced like the export does, falling back to the catalog defaults.
+ */
+const previewParams = computed<Record<string, unknown>>(() => {
+  const action = selectedAction.value
+  const spec = actionKind.value && action ? outputCatalog.kinds[actionKind.value].actions[action.name] : undefined
+  if (!spec || !action || !clip.value) return {}
+  const out: Record<string, unknown> = {}
+  for (const [name, pspec] of Object.entries(actionParams(spec, selectedAnimation.value))) {
+    const declared = action.parameters.find(p => p.name === name)
+    const raw = declared ? (declared.dynamic ? clip.value.paramValues[name] : declared.staticValue) : undefined
+    const coerced = coerceParam(raw, pspec)
+    out[name] = coerced.ok && !coerced.omitted ? coerced.value : pspec.default
+  }
+  return out
+})
+const previewRange = computed(() => ({
+  first: typeof previewParams.value.first === 'number' ? previewParams.value.first : null,
+  last: typeof previewParams.value.last === 'number' ? previewParams.value.last : null
+}))
+
 /** `#rrggbb` of a static rgb parameter for a colour swatch, or null when not a colour. */
 function staticSwatch(param: ActionParameterDto): string | null {
   if (catalogParamTypes.value[param.name] !== 'rgb') return null
@@ -264,6 +311,17 @@ function togglePort(portId: number, checked: boolean) {
           :catalog-type="catalogParamTypes[param.name] ?? null"
           :model-value="clip.paramValues[param.name]"
           @update:model-value="setParam(param, $event)" />
+      </div>
+
+      <div v-if="previewAction" class="border-t border-line pt-3">
+        <EditorLedPreview
+          :action="previewAction"
+          :animation="selectedAnimation"
+          :params="previewParams"
+          :pixels="previewPixels"
+          :duration-sec="durationParam ? clip.durationMs / 1000 : null"
+          :first="previewRange.first"
+          :last="previewRange.last" />
       </div>
 
       <div v-if="staticParams.length" class="flex flex-col gap-2 border-t border-line pt-3">
