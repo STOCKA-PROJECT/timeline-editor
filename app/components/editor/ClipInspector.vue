@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { ActionParameterDto } from '~/types/api'
+import { catalog as outputCatalog, actionParams, isOutputKind, type CatalogType } from '~/types/catalog'
+import { parseRgb } from '~/utils/showCoerce'
 
 const scene = useSceneStore()
 const selection = useSelectionStore()
@@ -25,6 +27,35 @@ const dynamicParams = computed(() =>
   selectedAction.value?.parameters.filter(p => p.dynamic && !p.isDuration) ?? [])
 const staticParams = computed(() =>
   selectedAction.value?.parameters.filter(p => !p.dynamic && !p.isDuration) ?? [])
+
+// ---- catalog-aware inputs ----
+/** Output kind of the piece type that owns the selected action, when it drives hardware. */
+const actionKind = computed(() => {
+  if (!selectedAction.value || !piece.value) return null
+  const typeId = catalog.typeIdOfAction(selectedAction.value.id)
+  const kind = piece.value.pieceTypes.find(t => t.id === typeId)?.kind
+  return isOutputKind(kind) ? kind : null
+})
+/** Catalog type of each parameter of the selected action (empty for actions outside the catalog). */
+const catalogParamTypes = computed<Record<string, CatalogType>>(() => {
+  const action = selectedAction.value
+  const spec = actionKind.value && action ? outputCatalog.kinds[actionKind.value].actions[action.name] : undefined
+  if (!spec || !action) return {}
+  // For `animate`, the extra parameters depend on the animation: fixed on the type or set per clip.
+  const animParam = action.parameters.find(p => p.name === 'animation_type')
+  const animation = animParam
+    ? (animParam.dynamic ? clip.value?.paramValues.animation_type : animParam.staticValue)
+    : null
+  return Object.fromEntries(
+    Object.entries(actionParams(spec, typeof animation === 'string' && animation ? animation : null))
+      .map(([name, p]) => [name, p.type]))
+})
+/** `#rrggbb` of a static rgb parameter for a colour swatch, or null when not a colour. */
+function staticSwatch(param: ActionParameterDto): string | null {
+  if (catalogParamTypes.value[param.name] !== 'rgb') return null
+  const rgb = parseRgb(param.staticValue)
+  return rgb ? '#' + rgb.map(c => c.toString(16).padStart(2, '0')).join('') : null
+}
 
 // A static duration fixes the clip length on the type; a dynamic one is edited here per clip.
 const durationIsStatic = computed(() => !!durationParam.value && !durationParam.value.dynamic)
@@ -230,6 +261,7 @@ function togglePort(portId: number, checked: boolean) {
           v-for="param in dynamicParams"
           :key="param.name"
           :param="param"
+          :catalog-type="catalogParamTypes[param.name] ?? null"
           :model-value="clip.paramValues[param.name]"
           @update:model-value="setParam(param, $event)" />
       </div>
@@ -239,7 +271,10 @@ function togglePort(portId: number, checked: boolean) {
         <dl class="flex flex-col gap-1 text-[12px]">
           <div v-for="param in staticParams" :key="param.name" class="flex items-center justify-between gap-2">
             <dt class="text-ink-soft">{{ param.displayName }}</dt>
-            <dd class="truncate text-right text-ink" :title="formatStatic(param)">{{ formatStatic(param) }}</dd>
+            <dd class="flex min-w-0 items-center justify-end gap-1.5 text-ink" :title="formatStatic(param)">
+              <span v-if="staticSwatch(param)" class="h-3.5 w-3.5 flex-shrink-0 rounded-[3px] border border-line" :style="{ background: staticSwatch(param)! }" />
+              <span class="truncate">{{ formatStatic(param) }}</span>
+            </dd>
           </div>
         </dl>
         <p class="text-[11px] text-ink-muted">Aquests valors es defineixen al tipus d'article.</p>

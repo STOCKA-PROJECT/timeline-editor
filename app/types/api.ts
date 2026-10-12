@@ -25,6 +25,8 @@ export type PieceAttachmentKind = 'IMAGE' | 'DOCUMENT'
 export interface PieceTypeRefDto {
   id: number
   name: string
+  /** Output kind the type drives (catalog id), or null for inventory-only types. */
+  kind?: OutputKind | null
 }
 
 export interface PieceListItemDto {
