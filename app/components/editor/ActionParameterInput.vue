@@ -18,6 +18,11 @@ function set(value: unknown) {
   emit('update:modelValue', value)
 }
 
+/** Numeric inputs: an emptied field unsets the parameter instead of turning it into 0. */
+function setNumber(raw: string) {
+  set(raw.trim() === '' ? null : Number(raw))
+}
+
 const options = computed(() => props.param.validators?.options ?? [])
 const asString = computed(() => (props.modelValue == null ? '' : String(props.modelValue)))
 
@@ -126,12 +131,12 @@ function toggleMulti(opt: string, checked: boolean) {
     <input
       v-else-if="param.type === 'INTEGER'"
       class="field" type="number" step="1" :value="asString"
-      @input="set(Number(($event.target as HTMLInputElement).value))">
+      @input="setNumber(($event.target as HTMLInputElement).value)">
 
     <input
       v-else-if="param.type === 'DECIMAL' || param.type === 'PRICE'"
       class="field" type="number" step="any" :value="asString"
-      @input="set(Number(($event.target as HTMLInputElement).value))">
+      @input="setNumber(($event.target as HTMLInputElement).value)">
 
     <label v-else-if="param.type === 'BOOLEAN'" class="flex items-center gap-2 text-[13px] text-ink">
       <input type="checkbox" :checked="asBool" @change="set(($event.target as HTMLInputElement).checked)">
