@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { SceneClip, SceneLayer, SceneTrack } from '~/types/editor'
 import { constrainMove, constrainResize, fitNewClip } from '~/utils/clipBounds'
+import { rulerTicks } from '~/utils/rulerTicks'
 import { DEFAULT_CLIP_MS } from '~/stores/scene'
 
 const scene = useSceneStore()
@@ -12,7 +13,8 @@ const pxPerMs = ref(0.04)
 const lanesRef = ref<HTMLDivElement | null>(null)
 
 const totalWidth = computed(() => scene.durationMs * pxPerMs.value)
-const seconds = computed(() => Math.ceil(scene.durationMs / 1000))
+/** Ruler ticks adapted to the zoom: labels keep a minimum spacing, minor ticks fill the gaps. */
+const ruler = computed(() => rulerTicks(scene.durationMs, pxPerMs.value))
 
 // ---- layer filter and folders ----
 /**
@@ -220,11 +222,16 @@ function selectTrackItem(track: SceneTrack) {
             class="relative h-6 min-w-0 flex-1 cursor-ew-resize border-b border-line bg-bg-soft"
             @pointerdown="onRulerPointerDown">
             <div
-              v-for="s in seconds"
-              :key="s"
-              class="absolute top-0 h-full border-l border-line/70 pl-1 text-[10px] text-ink-muted"
-              :style="{ left: (s - 1) * 1000 * pxPerMs + 'px' }">
-              {{ s - 1 }}s
+              v-for="ms in ruler.minor"
+              :key="'m' + ms"
+              class="absolute bottom-0 h-1.5 border-l border-line/60"
+              :style="{ left: ms * pxPerMs + 'px' }" />
+            <div
+              v-for="tick in ruler.major"
+              :key="tick.ms"
+              class="absolute top-0 h-full whitespace-nowrap border-l border-line/80 pl-1 text-[10px] tabular-nums text-ink-muted"
+              :style="{ left: tick.ms * pxPerMs + 'px' }">
+              {{ tick.label }}
             </div>
             <div
               class="pointer-events-none absolute top-0 h-full w-px bg-danger"
