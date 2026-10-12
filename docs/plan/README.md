@@ -83,7 +83,7 @@ Cada puerto de Stocka pasa a tener un `kind` cerrado. Las acciones y parámetros
 | `led_strip` | `LedsController` | `pin` (12, 13, 18, 19, 10 o 21), `dma`, `channel`, `length`, `brightness?`, `freq_hz?`, `invert?` | `fill(color, first?, last?)`, `clear()`, `animate(animation_type, …)`, `setBrightness(brightness)`. Infraestructura: el tipo de pieza es opcional; con tipo, la tira entera es un objetivo de show |
 | `led_segment` | `LedsController` | `strip` (nombre de un `led_strip`), `first`, `last` (rango inverso permitido) | `fill(color, first?, last?)`, `clear()`, `animate(animation_type, first?, last?, duration?, + parámetros de la animación: `color`, `from_color`, `speed`, `intensity`, …)`. No hay acción `fade`: es `animate` con `animation_type: fade` |
 | `motor` | `AngelController` | `pinR`, `pinL`, `sensorPin`, `downTime` | `start_up(time?)`, `start_down(time?)`, `stop()` |
-| `audio` | `AudioController` | — | `play(audio_name, time?)`, `stop()` |
+| `audio` | `AudioController` | — | `play(audio_name, start?, time?)`, `stop()` |
 | `video` | `VideoController` | — | `play(video_name)`, `stop()` |
 | `button` (entrada) | `ButtonController` | `pin` (infraestructura, sin tipo de pieza; el `mode` va en el paquete) | — |
 
