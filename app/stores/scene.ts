@@ -14,7 +14,7 @@ import {
 } from '~/types/editor'
 import { nextId } from '~/utils/ids'
 
-const DEFAULT_CLIP_MS = 2000
+export const DEFAULT_CLIP_MS = 2000
 
 /**
  * Holds the live, editable scene document and persists it to the backend. Mutations bump
@@ -328,13 +328,13 @@ export const useSceneStore = defineStore('scene', () => {
   }
 
   // ----- clips -----
-  function addClip(trackId: string, actionId: number | null, startMs: number): SceneClip {
+  function addClip(trackId: string, actionId: number | null, startMs: number, durationMs: number = DEFAULT_CLIP_MS): SceneClip {
     const clip: SceneClip = {
       id: nextId('clip'),
       trackId,
       pieceTypeActionId: actionId,
       startMs: Math.max(0, Math.round(startMs)),
-      durationMs: DEFAULT_CLIP_MS,
+      durationMs: Math.max(1, Math.round(durationMs)),
       paramValues: {}
     }
     clips.value = [...clips.value, clip]

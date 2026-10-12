@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { SceneClip, SceneLayer, SceneTrack } from '~/types/editor'
+import { constrainMove, constrainResize, fitNewClip } from '~/utils/clipBounds'
+import { DEFAULT_CLIP_MS } from '~/stores/scene'
 
 const scene = useSceneStore()
 const selection = useSelectionStore()
@@ -106,7 +108,11 @@ async function addClipAt(track: SceneTrack, ms: number) {
   // Clips always carry an action; without one available the clip is not created.
   const firstAction = catalog.actionsForPiece(piece)[0]?.id
   if (firstAction == null) return
-  const clip = scene.addClip(track.id, firstAction, ms)
+  // Clips never overlap: a double-click inside a clip adds nothing, and a new clip is cut down
+  // to the free space before the next one.
+  const fit = fitNewClip(scene.clipsForTrack(track.id), ms, DEFAULT_CLIP_MS)
+  if (!fit) return
+  const clip = scene.addClip(track.id, firstAction, fit.startMs, fit.durationMs)
   selection.selectClip(clip.id)
 }
 
@@ -116,20 +122,32 @@ function onLaneDblClick(track: SceneTrack, e: MouseEvent) {
 }
 
 // ---- drag / resize clips ----
+/** Magnetic distance of the snap, in screen pixels (converted to ms at the current zoom). */
+const SNAP_PX = 8
+
+/**
+ * Drags a clip (or its right edge). Like any editing timeline, a clip can never overlap another
+ * one on its track: it stops at the neighbour's edge instead of jumping over it, and its edges
+ * are magnetised to the neighbours, the start of the scene and the playhead (Alt disables the snap).
+ */
 function startClipDrag(clip: SceneClip, e: PointerEvent, mode: 'move' | 'resize') {
   e.preventDefault()
   e.stopPropagation()
   selection.selectClip(clip.id)
   const startX = e.clientX
-  const origStart = clip.startMs
-  const origDur = clip.durationMs
+  const orig = { id: clip.id, startMs: clip.startMs, durationMs: clip.durationMs }
+  const others = scene.clipsForTrack(clip.trackId).filter(c => c.id !== clip.id)
 
   function onMove(ev: PointerEvent) {
     const deltaMs = (ev.clientX - startX) / pxPerMs.value
+    const opts = {
+      snapMs: ev.altKey ? 0 : SNAP_PX / pxPerMs.value,
+      snapTargets: [0, playback.currentMs, ...others.flatMap(c => [c.startMs, c.startMs + c.durationMs])]
+    }
     if (mode === 'move') {
-      scene.updateClip(clip.id, { startMs: Math.max(0, Math.round((origStart + deltaMs) / 50) * 50) })
+      scene.updateClip(clip.id, { startMs: constrainMove(orig, others, orig.startMs + deltaMs, opts) })
     } else {
-      scene.updateClip(clip.id, { durationMs: Math.max(100, Math.round((origDur + deltaMs) / 50) * 50) })
+      scene.updateClip(clip.id, { durationMs: constrainResize(orig, others, orig.durationMs + deltaMs, opts) })
     }
   }
   function onUp() {
@@ -274,7 +292,8 @@ function selectTrackItem(track: SceneTrack) {
                 class="absolute top-1 flex h-8 cursor-grab items-center overflow-hidden rounded-[6px] border text-[11px] text-accent-ink"
                 :class="selection.selectedClipId === clip.id ? 'border-accent bg-accent-soft ring-1 ring-accent' : 'border-accent/50 bg-accent-soft/70'"
                 :style="{ left: clipLeft(clip) + 'px', width: clipWidth(clip) + 'px' }"
-                @pointerdown="startClipDrag(clip, $event, 'move')">
+                @pointerdown="startClipDrag(clip, $event, 'move')"
+                @dblclick.stop>
                 <span class="truncate px-1.5">{{ clipLabel(clip) }}</span>
                 <span
                   class="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize bg-accent/40"
