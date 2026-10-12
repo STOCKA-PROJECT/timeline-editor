@@ -63,8 +63,27 @@ const previewAction = computed<'animate' | 'fill' | 'clear' | null>(() => {
   if (!actionKind.value || !['led_strip', 'led_segment'].includes(actionKind.value)) return null
   return name === 'animate' || name === 'fill' || name === 'clear' ? name : null
 })
-/** Number of LEDs of the first port of the action's type assigned to the item (44 when unknown). */
-const previewPixels = computed(() => {
+const previewRange = computed(() => ({
+  first: typeof previewParams.value.first === 'number' ? previewParams.value.first : null,
+  last: typeof previewParams.value.last === 'number' ? previewParams.value.last : null
+}))
+/** Piece attributes that give the number of LEDs of the figure (technical or visible name). */
+const LED_COUNT_ATTRS = new Set(['leds', 'led', 'num_leds', 'n_leds', 'led_count', 'longitud', 'length', 'pixels', 'nombre_de_led', 'nombre de led'])
+const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').trim()
+
+/** LEDs of the figure according to its own numeric attribute (e.g. «Longitud»), or null. */
+const pieceLedCount = computed<number | null>(() => {
+  for (const a of detail.value?.attributeValues ?? []) {
+    if (!NUMERIC_TYPES.has(a.type) || a.value == null) continue
+    if (LED_COUNT_ATTRS.has(normalize(a.attributeName)) || LED_COUNT_ATTRS.has(normalize(a.displayName ?? ''))) {
+      const n = Math.round(Number(a.value))
+      if (Number.isFinite(n) && n > 0) return n
+    }
+  }
+  return null
+})
+/** LEDs of the port of the action's type assigned to the item (segment range or strip length), or null. */
+const portLedCount = computed<number | null>(() => {
   const typeId = selectedAction.value ? catalog.typeIdOfAction(selectedAction.value.id) : undefined
   for (const id of item.value?.ports ?? []) {
     const port = catalog.portById(id)
@@ -73,7 +92,22 @@ const previewPixels = computed(() => {
     if (port.kind === 'led_segment' && typeof cfg.first === 'number' && typeof cfg.last === 'number') return Math.abs(cfg.last - cfg.first) + 1
     if (port.kind === 'led_strip' && typeof cfg.length === 'number') return cfg.length
   }
-  return 44
+  return null
+})
+/**
+ * What the preview draws: only the LEDs the clip selects with first/last, otherwise every LED
+ * of the figure (its length attribute; the port as a fallback; 44 when nothing is known).
+ */
+const preview = computed(() => {
+  const { first, last } = previewRange.value
+  if (first != null || last != null) {
+    const a = first ?? 0
+    const b = last ?? (pieceLedCount.value ?? portLedCount.value ?? 44) - 1
+    return { pixels: Math.abs(b - a) + 1, source: `LED seleccionats del ${Math.min(a, b)} al ${Math.max(a, b)}` }
+  }
+  if (pieceLedCount.value != null) return { pixels: pieceLedCount.value, source: 'longitud de la figura' }
+  if (portLedCount.value != null) return { pixels: portLedCount.value, source: 'segons el port; posa un atribut «Longitud» a la figura' }
+  return { pixels: 44, source: 'nombre desconegut; posa un atribut «Longitud» a la figura' }
 })
 /**
  * Parameter values the preview runs with: the clip's dynamic values or the action's fixed ones,
@@ -92,10 +126,6 @@ const previewParams = computed<Record<string, unknown>>(() => {
   }
   return out
 })
-const previewRange = computed(() => ({
-  first: typeof previewParams.value.first === 'number' ? previewParams.value.first : null,
-  last: typeof previewParams.value.last === 'number' ? previewParams.value.last : null
-}))
 
 /** `#rrggbb` of a static rgb parameter for a colour swatch, or null when not a colour. */
 function staticSwatch(param: ActionParameterDto): string | null {
@@ -318,10 +348,9 @@ function togglePort(portId: number, checked: boolean) {
           :action="previewAction"
           :animation="selectedAnimation"
           :params="previewParams"
-          :pixels="previewPixels"
-          :duration-sec="durationParam ? clip.durationMs / 1000 : null"
-          :first="previewRange.first"
-          :last="previewRange.last" />
+          :pixels="preview.pixels"
+          :source="preview.source"
+          :duration-sec="durationParam ? clip.durationMs / 1000 : null" />
       </div>
 
       <div v-if="staticParams.length" class="flex flex-col gap-2 border-t border-line pt-3">

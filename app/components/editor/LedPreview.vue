@@ -12,6 +12,8 @@ const props = defineProps<{
   /** Parameters already coerced to catalog values (`[r, g, b]` colours, numbers). */
   params: Record<string, unknown>
   pixels: number
+  /** Where the LED count comes from, shown in the hint. */
+  source?: string | null
   durationSec?: number | null
   first?: number | null
   last?: number | null
@@ -108,7 +110,7 @@ onBeforeUnmount(() => cancelAnimationFrame(raf))
     <canvas ref="canvas" class="h-5 w-full rounded-[4px] border border-line" height="20" />
     <p v-if="unsupported" class="text-[11px] text-ink-muted">Aquesta animació no té previsualització.</p>
     <p v-else class="text-[11px] text-ink-muted">
-      Aproximació de {{ pixels }} LED{{ first != null || last != null ? ` (del ${Math.min(first ?? 0, last ?? pixels - 1)} al ${Math.max(first ?? 0, last ?? pixels - 1)})` : '' }}; el reproductor és la referència.
+      Aproximació de {{ pixels }} LED{{ source ? ` (${source})` : '' }}; el reproductor és la referència.
     </p>
   </div>
 </template>
