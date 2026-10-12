@@ -120,7 +120,7 @@ Un único JSON. Lo genera el editor a partir del plan de ejecución y lo valida 
     { "t": 0,     "target": "Audio",  "action": "play",    "params": { "audio_name": "nature.mp3" } },
     { "t": 7000,  "target": "Sembra", "action": "turn_on", "params": { "time": 20 } },
     { "t": 60000, "target": "Angel",  "action": "start_up", "params": {} },
-    { "t": 90000, "target": "Fondo1", "action": "fade",    "params": { "color": [0, 16, 64], "duration": 15 } }
+    { "t": 90000, "target": "Fondo1", "action": "animate", "params": { "animation_type": "fade", "color": [0, 16, 64], "from_color": [255, 50, 0], "duration": 15 } }
   ],
   "durationMs": 118000,
   "assets": { "audio": ["nature.mp3"], "video": [] }
@@ -129,6 +129,7 @@ Un único JSON. Lo genera el editor a partir del plan de ejecución y lo valida 
 
 Decisiones de formato:
 
+- **No hay acción `fade`**: es `animate` con `animation_type: "fade"` (el método `fade` del controlador es un wrapper deprecado sin `first/last`). Los `first/last` de `fill` y `animate` son **relativos al segmento**.
 - **`target` es el nombre del puerto** en Stocka, único por organización. Es el mismo valor que hoy usa `rpi4-system` como `name`, así que el cargador no necesita tabla de traducción.
 - **Tiempos en milisegundos enteros** en el paquete (`t`, `durationMs`), que es lo que usa el editor. El cargador convierte a segundos para los controladores. Los parámetros `time`, `duration` y `hold_time` se mantienen en segundos porque así los esperan los controladores.
 - **`hardware` sustituye a `config.pins` y `config.leds`** del formato actual. Los segmentos van al mismo nivel que las tiras, cada uno con su `kind`.
@@ -170,9 +171,11 @@ Se aplican en el editor al exportar y en la RPi al cargar. Las mismas reglas, lo
 
 ## 5. Fases
 
-### Fase 1 · Contrato y conversor · 12–18 de octubre
+### Fase 1 · Contrato y conversor · 12–18 de octubre · **HECHA el 12 de octubre**
 
 **Objetivo.** Que el editor exporte un paquete `stocka-show` v2 válido y que exista un único catálogo compartido.
+
+Resultado: catálogo y esquema en `rpi4-system/contract/` (142 tests), `kind` en tipos de pieza y puertos con validación contra el catálogo en el backend (`GET /contract/catalog`), exportación `.show.json` en el editor (63 tests) con el mismo hash que `tools/show_hash.py`, y formularios de kind/config en el frontend. Las tiras y el pulsador son puertos de infraestructura (sin tipo de pieza). Diferencia respecto a lo planeado: el perfil de placa vive dentro del catálogo (`boards.rpi4b`) y no en `boards/rpi4b.json`.
 
 **`rpi4-system`**
 
