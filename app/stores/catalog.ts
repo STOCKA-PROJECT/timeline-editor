@@ -77,6 +77,11 @@ export const useCatalogStore = defineStore('catalog', () => {
     return isOutputKind(kind) ? kind : null
   }
 
+  /** Pieces whose types drive LEDs: with a length attribute they show their LEDs on the board. */
+  function isLedPiece(piece: PieceListItemDto | undefined): boolean {
+    return !!piece?.pieceTypes.some(t => t.kind === 'led_strip' || t.kind === 'led_segment')
+  }
+
   /** Pieces on the board whose types drive an audio output (they may carry audio files). */
   function isAudioPiece(piece: PieceListItemDto | undefined): boolean {
     return !!piece?.pieceTypes.some(t => t.kind === 'audio')
@@ -214,6 +219,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     portsForPiece,
     typeIdOfAction,
     kindOfAction,
+    isLedPiece,
     isAudioPiece,
     audioByPiece,
     ensureAudioForPiece,

@@ -26,6 +26,12 @@ export interface SceneLayer {
   opacity: number
 }
 
+/** A point inside an item, as fractions of its width and height (0,0 top-left, 1,1 bottom-right). */
+export interface LedPoint {
+  x: number
+  y: number
+}
+
 export interface SceneItem {
   id: string
   pieceId: number
@@ -44,6 +50,12 @@ export interface SceneItem {
    * ids and tolerates stale ones.
    */
   ports?: number[]
+  /**
+   * Where the LEDs of the piece sit on the board: a polyline the LEDs are spread along, LED 0 at
+   * the first point, in fractions of the item's size so it follows resizes and rotations. Absent:
+   * a line across the middle, left to right. Only drawn when the piece has a LED length.
+   */
+  ledPath?: LedPoint[] | null
 }
 
 export interface SceneTrack {

@@ -71,6 +71,19 @@ function num(e: Event) { return Number((e.target as HTMLInputElement).value) }
         </svg>
       </button>
 
+      <button
+        class="tbtn"
+        :class="{ 'is-active': playback.ledEnabled }"
+        :title="playback.ledEnabled ? 'Amaga els LED al tauler' : 'Mostra els LED al tauler'"
+        @click="playback.toggleLed()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 18h6" />
+          <path d="M10 21h4" />
+          <path d="M8.5 15a6 6 0 1 1 7 0c-.8.6-1.2 1.2-1.5 2h-4c-.3-.8-.7-1.4-1.5-2z" />
+        </svg>
+      </button>
+
       <span class="ml-1 font-mono text-[12px] tabular-nums text-ink-soft">
         {{ fmt(playback.currentMs) }} / {{ fmt(scene.durationMs) }}
       </span>

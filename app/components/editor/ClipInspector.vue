@@ -2,15 +2,17 @@
 import type { ActionParameterDto } from '~/types/api'
 import { catalog as outputCatalog, actionParams, isOutputKind, type CatalogType } from '~/types/catalog'
 import { assetNameFor, audioFileWindow, formatClock } from '~/utils/audioAssets'
+import { LED_PATH_PRESET_LABELS, ledPathOf, presetOfPath, presetPath, reverseLedPath, type LedPathPreset } from '~/utils/ledPath'
 import { layoutStrip } from '~/utils/stripLayout'
 import { getAudioContext, loadDecodedAudio } from '~/utils/audioCache'
-import { coerceParam, parseRgb } from '~/utils/showCoerce'
+import { parseRgb } from '~/utils/showCoerce'
 
 const scene = useSceneStore()
 const selection = useSelectionStore()
 const catalog = useCatalogStore()
 const config = useRuntimeConfig()
 const { audioClipOf } = useAudioClips()
+const { ledClipOf } = useLedClips()
 
 const clip = computed(() => (selection.selectedClipId ? scene.clipById(selection.selectedClipId) : null) ?? null)
 const item = computed(() => {
@@ -174,13 +176,7 @@ const catalogParamTypes = computed<Record<string, CatalogType>>(() => {
   const spec = actionKind.value && action ? outputCatalog.kinds[actionKind.value].actions[action.name] : undefined
   if (!spec || !action) return {}
   // For `animate`, the extra parameters depend on the animation: fixed on the type or set per clip.
-  const animParam = action.parameters.find(p => p.name === 'animation_type')
-  const animation = animParam
-    ? (animParam.dynamic ? clip.value?.paramValues.animation_type : animParam.staticValue)
-    : null
-  return Object.fromEntries(
-    Object.entries(actionParams(spec, typeof animation === 'string' && animation ? animation : null))
-      .map(([name, p]) => [name, p.type]))
+  return Object.fromEntries(Object.entries(actionParams(spec, selectedAnimation.value)).map(([name, p]) => [name, p.type]))
 })
 // ---- LED preview ----
 /** Animation the clip will run: fixed on the action or chosen on the clip (null when unknown). */
@@ -190,15 +186,8 @@ const selectedAnimation = computed<string | null>(() => {
   const v = animParam.dynamic ? clip.value?.paramValues.animation_type : animParam.staticValue
   return typeof v === 'string' && v ? v : null
 })
-const previewAction = computed<'animate' | 'fill' | 'clear' | null>(() => {
-  const name = selectedAction.value?.name
-  if (!actionKind.value || !['led_strip', 'led_segment'].includes(actionKind.value)) return null
-  return name === 'animate' || name === 'fill' || name === 'clear' ? name : null
-})
-const previewRange = computed(() => ({
-  first: typeof previewParams.value.first === 'number' ? previewParams.value.first : null,
-  last: typeof previewParams.value.last === 'number' ? previewParams.value.last : null
-}))
+/** The clip as a LED action, its parameters coerced like the export (null for other clips). */
+const ledClip = computed(() => (clip.value ? ledClipOf(clip.value) : null))
 /** LEDs of the figure according to its own numeric attribute (e.g. «Longitud»), or null. */
 const pieceLedCount = computed<number | null>(() => (piece.value ? catalog.ledLengthOf(piece.value.id) : null))
 /** LEDs of the port of the action's type assigned to the item (segment range or strip length), or null. */
@@ -218,7 +207,8 @@ const portLedCount = computed<number | null>(() => {
  * of the figure (its length attribute; the port as a fallback; 44 when nothing is known).
  */
 const preview = computed(() => {
-  const { first, last } = previewRange.value
+  const first = ledClip.value?.first ?? null
+  const last = ledClip.value?.last ?? null
   if (first != null || last != null) {
     const a = first ?? 0
     const b = last ?? (pieceLedCount.value ?? portLedCount.value ?? 44) - 1
@@ -228,24 +218,6 @@ const preview = computed(() => {
   if (portLedCount.value != null) return { pixels: portLedCount.value, source: 'segons el port; posa un atribut «Longitud» a la figura' }
   return { pixels: 44, source: 'nombre desconegut; posa un atribut «Longitud» a la figura' }
 })
-/**
- * Parameter values the preview runs with: the clip's dynamic values or the action's fixed ones,
- * coerced like the export does, falling back to the catalog defaults.
- */
-const previewParams = computed<Record<string, unknown>>(() => {
-  const action = selectedAction.value
-  const spec = actionKind.value && action ? outputCatalog.kinds[actionKind.value].actions[action.name] : undefined
-  if (!spec || !action || !clip.value) return {}
-  const out: Record<string, unknown> = {}
-  for (const [name, pspec] of Object.entries(actionParams(spec, selectedAnimation.value))) {
-    const declared = action.parameters.find(p => p.name === name)
-    const raw = declared ? (declared.dynamic ? clip.value.paramValues[name] : declared.staticValue) : undefined
-    const coerced = coerceParam(raw, pspec)
-    out[name] = coerced.ok && !coerced.omitted ? coerced.value : pspec.default
-  }
-  return out
-})
-
 /** `#rrggbb` of a static rgb parameter for a colour swatch, or null when not a colour. */
 function staticSwatch(param: ActionParameterDto): string | null {
   if (catalogParamTypes.value[param.name] !== 'rgb') return null
@@ -375,6 +347,24 @@ watch([item, detail], () => {
     if (item.value.height !== px) scene.updateItem(item.value.id, { height: px })
   }
 }, { immediate: true })
+
+// ----- LEDs on the board: the path the LEDs of the piece follow -----
+const isLedPiece = computed(() => catalog.isLedPiece(piece.value))
+const ledPreset = computed(() => (item.value ? presetOfPath(ledPathOf(item.value)) : null))
+const drawingLed = computed(() => !!item.value && selection.drawingLedPathFor === item.value.id)
+
+function setLedPreset(name: string) {
+  if (item.value && name in LED_PATH_PRESET_LABELS) scene.updateItem(item.value.id, { ledPath: presetPath(name as LedPathPreset) })
+}
+function reverseLed() {
+  if (item.value) scene.updateItem(item.value.id, { ledPath: reverseLedPath(ledPathOf(item.value)) })
+}
+/** Starts an empty path: the board adds a point per click until the user finishes. */
+function startDrawingLed() {
+  if (!item.value) return
+  scene.updateItem(item.value.id, { ledPath: [] })
+  selection.startLedPath(item.value.id)
+}
 
 // ----- ports (hardware outputs assigned to the item) -----
 /** Ports assignable to the selected item = those whose piece type matches its piece. */
@@ -552,14 +542,14 @@ watch(stripsOfItem, (strips) => {
           @update:model-value="setParam(param, $event)" />
       </div>
 
-      <div v-if="previewAction" class="border-t border-line pt-3">
+      <div v-if="ledClip" class="border-t border-line pt-3">
         <EditorLedPreview
-          :action="previewAction"
-          :animation="selectedAnimation"
-          :params="previewParams"
+          :action="ledClip.action"
+          :animation="ledClip.animation"
+          :params="ledClip.params"
           :pixels="preview.pixels"
           :source="preview.source"
-          :duration-sec="durationParam ? clip.durationMs / 1000 : null" />
+          :duration-sec="ledClip.durationSec" />
       </div>
 
       <div v-if="staticParams.length" class="flex flex-col gap-2 border-t border-line pt-3">
@@ -698,6 +688,31 @@ watch(stripsOfItem, (strips) => {
         </div>
         <p class="text-[11px] text-ink-muted">Treu-los i marca el port nou de la llista de dalt.</p>
       </div>
+    </div>
+
+    <!-- LEDs on the board: where the LEDs of the piece run, so the preview lights them in place -->
+    <div v-if="isLedPiece" class="mt-3 flex flex-col gap-1 border-t border-line pt-3">
+      <span class="text-[11px] font-semibold uppercase tracking-[.08em] text-ink-muted">LED al tauler</span>
+      <template v-if="pieceLedCount">
+        <div class="flex gap-2">
+          <select class="field min-w-0 flex-1" :value="ledPreset ?? 'custom'" :disabled="drawingLed"
+            @change="setLedPreset(($event.target as HTMLSelectElement).value)">
+            <option v-for="(label, key) in LED_PATH_PRESET_LABELS" :key="key" :value="key">{{ label }}</option>
+            <option v-if="ledPreset === null" value="custom">Personalitzat</option>
+          </select>
+          <button class="btn !h-8 !px-2 !text-[12px]" :disabled="drawingLed" title="Posa el LED 0 a l'altre extrem" @click="reverseLed">Inverteix</button>
+        </div>
+        <button v-if="!drawingLed" class="btn !h-8 !px-2 !text-[12px]" @click="startDrawingLed">Dibuixa el traçat al tauler</button>
+        <button v-else class="btn btn-primary !h-8 !px-2 !text-[12px]" @click="selection.stopLedPath()">Acaba el traçat</button>
+        <p class="text-[11px] text-ink-muted">
+          {{ drawingLed
+            ? 'Clica al tauler per on passa la tira, punt a punt; Esc també acaba.'
+            : `${pieceLedCount} LED repartits al llarg del traçat; el LED 0 és al primer punt.` }}
+        </p>
+      </template>
+      <p v-else class="text-[11.5px] text-ink-muted">
+        Posa un atribut numèric «Longitud» a l'article per veure els seus LED al tauler.
+      </p>
     </div>
 
     <p class="mt-3 text-[11.5px] text-ink-muted">

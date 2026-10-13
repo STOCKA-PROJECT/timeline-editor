@@ -71,17 +71,16 @@ function framed(frame: () => Rgb[]): LedAnimator {
   }
 }
 
-function fadeSequence(sequence: Rgb[], durationSec: number, count: number, loop = true): () => Rgb[] {
+/** Linear interpolation through `sequence` over `durationSec`, holding the last colour afterwards. */
+function fadeSequence(sequence: Rgb[], durationSec: number, count: number): () => Rgb[] {
   const segments = Math.max(1, sequence.length - 1)
   const segDuration = Math.max(0.05, durationSec) / segments
-  const pause = 1
   let t = 0
   return () => {
     const total = segDuration * segments
     let color: Rgb
     if (t >= total) {
       color = sequence[sequence.length - 1]!
-      if (loop && t >= total + pause) t = 0
     } else {
       const idx = Math.min(segments - 1, Math.floor(t / segDuration))
       const f = (t - idx * segDuration) / segDuration

@@ -70,10 +70,32 @@ export const useSelectionStore = defineStore('selection', () => {
     selectedLayerIds.value = selectedLayerIds.value.filter(l => l !== id)
   }
 
+  // ----- drawing the LED path of an item on the board -----
+  /** Item whose LED path is being drawn: each click on the board adds a point to it. */
+  const drawingLedPathFor = ref<string | null>(null)
+
+  function startLedPath(itemId: string) {
+    drawingLedPathFor.value = itemId
+  }
+
+  /** Ends the drawing; a path with fewer than two points goes back to the default one. */
+  function stopLedPath() {
+    const scene = useSceneStore()
+    const item = drawingLedPathFor.value ? scene.itemById(drawingLedPathFor.value) : undefined
+    if (item && (item.ledPath?.length ?? 0) < 2) scene.updateItem(item.id, { ledPath: null })
+    drawingLedPathFor.value = null
+  }
+
+  // Selecting something else ends the drawing.
+  watch(selectedItemId, (id) => {
+    if (drawingLedPathFor.value && id !== drawingLedPathFor.value) stopLedPath()
+  })
+
   function reset() {
     selectedItemIds.value = []
     selectedClipId.value = null
     selectedLayerIds.value = []
+    drawingLedPathFor.value = null
   }
 
   return {
@@ -89,6 +111,9 @@ export const useSelectionStore = defineStore('selection', () => {
     toggleLayer,
     isLayerSelected,
     dropLayer,
+    drawingLedPathFor,
+    startLedPath,
+    stopLedPath,
     reset
   }
 })

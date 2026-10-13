@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { SceneItem, SceneLayer } from '~/types/editor'
+import { boardToItemFraction, itemToBoard, ledPathOf, ledPositions, pathLength } from '~/utils/ledPath'
 
 const scene = useSceneStore()
 const selection = useSelectionStore()
@@ -58,6 +59,77 @@ watch(
   { immediate: true }
 )
 
+// ---- LEDs of the pieces ----
+// A piece with a LED length draws its LEDs as dots along its path (`SceneItem.ledPath`). Their
+// colours come from the preview at the playhead and are read while drawing, so a change of
+// colours only needs a redraw of the stage.
+const leds = useLedBoardPreview()
+watch(leds.revision, () => stageNode()?.batchDraw())
+
+const LED_OFF = '#454545'
+function drawLeds(ctx: any, shape: any) {
+  const item = shape.getAttr('item') as SceneItem
+  const count = shape.getAttr('ledCount') as number
+  const path = ledPathOf(item)
+  const radius = Math.min(6, Math.max(1.2, (pathLength(path, item.width, item.height) / count) * 0.4))
+  // The strip: a dark band the dots sit on.
+  ctx.beginPath()
+  path.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x * item.width, p.y * item.height) : ctx.lineTo(p.x * item.width, p.y * item.height)))
+  ctx.lineWidth = radius * 2.4
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.strokeStyle = 'rgba(28, 26, 24, 0.85)'
+  ctx.stroke()
+  const frame = leds.frameOf(item.id)
+  ledPositions(path, count, item.width, item.height).forEach((d, i) => {
+    const c = frame?.[i]
+    ctx.beginPath()
+    ctx.arc(d.x, d.y, radius, 0, Math.PI * 2)
+    ctx.fillStyle = c && (c[0] || c[1] || c[2]) ? `rgb(${c[0]},${c[1]},${c[2]})` : LED_OFF
+    ctx.fill()
+  })
+}
+
+/** First and last LED of an item, in its own pixels, with their numbers (empty without LEDs). */
+function ledEnds(item: SceneItem): Array<{ label: string, x: number, y: number }> {
+  const count = leds.ledCountOf(item)
+  if (!count) return []
+  const dots = ledPositions(ledPathOf(item), count, item.width, item.height)
+  return [{ label: '0', ...dots[0]! }, { label: String(count - 1), ...dots[count - 1]! }]
+}
+
+/** Along the strips of the selected item: a line from the last LED of each piece to the first of the next. */
+const stripLinks = computed(() => {
+  const item = selection.selectedItemId ? scene.itemById(selection.selectedItemId) : undefined
+  const links: number[][] = []
+  for (const portId of item?.ports ?? []) {
+    if (catalog.portById(portId)?.kind !== 'led_strip') continue
+    const mates = scene.itemsOnPort(portId)
+    for (let i = 0; i + 1 < mates.length; i++) {
+      const from = ledEnds(mates[i]!)[1]
+      const to = ledEnds(mates[i + 1]!)[0]
+      if (!from || !to) continue
+      const a = itemToBoard(from, mates[i]!)
+      const b = itemToBoard(to, mates[i + 1]!)
+      links.push([a.x, a.y, b.x, b.y])
+    }
+  }
+  return links
+})
+
+// ---- drawing a LED path: while the inspector has it on, each click on the board adds a point ----
+function addLedPoint() {
+  const item = selection.drawingLedPathFor ? scene.itemById(selection.drawingLedPathFor) : undefined
+  const p = stageNode()?.getRelativePointerPosition()
+  if (!item || !p) return
+  scene.updateItem(item.id, { ledPath: [...(item.ledPath ?? []), boardToItemFraction(p, item)] })
+}
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && selection.drawingLedPathFor) selection.stopLedPath()
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+
 // ---- fit / resize ----
 function fitToContainer() {
   const w = wrapperRef.value?.clientWidth ?? 800
@@ -95,7 +167,7 @@ function syncViewFromStage(e: any) {
 // vanishes over the white board. Clearing the inline style lets the canvas inherit grab again.
 function setItemCursor(over: boolean) {
   const container = stageNode()?.container()
-  if (container) container.style.cursor = over ? 'move' : ''
+  if (container && !selection.drawingLedPathFor) container.style.cursor = over ? 'move' : ''
 }
 
 // ---- zoom ----
@@ -144,12 +216,17 @@ function isSelected(item: SceneItem): boolean {
 }
 
 function onItemClick(item: SceneItem, e: any) {
+  if (selection.drawingLedPathFor) return // the click bubbles to the stage and adds a point
   e.cancelBubble = true
   selection.selectItem(item.id)
   closeCtxMenu()
 }
 
 function onStageClick(e: any) {
+  if (selection.drawingLedPathFor) {
+    addLedPoint()
+    return
+  }
   // Click on empty space (the stage itself or the board background) clears the selection.
   if (e.target === e.target.getStage() || e.target.name?.() === 'board-bg') {
     selection.selectItem(null)
@@ -246,7 +323,8 @@ onBeforeUnmount(() => { if (hintTimer) clearTimeout(hintTimer) })
 <template>
   <div
     ref="wrapperRef"
-    class="relative min-h-0 flex-1 overflow-hidden cursor-grab"
+    class="relative min-h-0 flex-1 overflow-hidden"
+    :class="selection.drawingLedPathFor ? 'cursor-crosshair' : 'cursor-grab'"
     @dragover.prevent
     @drop="onDrop">
     <v-stage
@@ -285,6 +363,16 @@ onBeforeUnmount(() => { if (hintTimer) clearTimeout(hintTimer) })
           <v-rect
             v-else
             :config="{ width: item.width, height: item.height, fill: '#efe9dc', stroke: '#d4ccba', strokeWidth: 1, cornerRadius: 6 }" />
+          <!-- LEDs of the piece along its path, coloured by the preview at the playhead -->
+          <v-shape
+            v-if="playback.ledEnabled && leds.ledCountOf(item)"
+            :config="{ sceneFunc: drawLeds, item, ledCount: leds.ledCountOf(item), listening: false }" />
+          <template v-if="playback.ledEnabled && isSelected(item)">
+            <v-text
+              v-for="(end, i) in ledEnds(item)"
+              :key="i"
+              :config="{ x: end.x - 14, y: end.y - 20, width: 28, align: 'center', text: end.label, fontSize: 10, fontStyle: 'bold', fill: '#3b6cb4', listening: false }" />
+          </template>
           <v-text
             :config="{ text: pieceName(item), width: item.width, padding: 4, fontSize: 12, fill: '#2a2722', ellipsis: true, wrap: 'none' }" />
           <v-rect
@@ -296,6 +384,14 @@ onBeforeUnmount(() => { if (hintTimer) clearTimeout(hintTimer) })
         </v-group>
       </v-layer>
 
+      <!-- Chain of the pieces along the selected item's LED strips -->
+      <v-layer v-if="playback.ledEnabled" :config="{ listening: false }">
+        <v-line
+          v-for="(pts, i) in stripLinks"
+          :key="i"
+          :config="{ points: pts, stroke: '#3b6cb4', strokeWidth: 1.5, dash: [5, 4] }" />
+      </v-layer>
+
       <!-- Transformer overlay -->
       <v-layer>
         <v-transformer ref="transformerRef" :config="{ rotateEnabled: true, keepRatio: false }" />
@@ -305,6 +401,13 @@ onBeforeUnmount(() => { if (hintTimer) clearTimeout(hintTimer) })
     <div class="pointer-events-none absolute bottom-2 left-2 rounded bg-bg-card/80 px-2 py-1 text-[11px] text-ink-muted">
       {{ scene.pxToCm(scene.board.width).toFixed(0) }} × {{ scene.pxToCm(scene.board.height).toFixed(0) }} cm ·
       zoom {{ Math.round(view.scale * 100) }}%
+    </div>
+
+    <!-- Drawing the LED path of the selected item -->
+    <div
+      v-if="selection.drawingLedPathFor"
+      class="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-[8px] bg-accent px-3 py-1.5 text-[12px] text-white shadow-lg">
+      Clica al tauler on passa la tira, punt a punt · Esc o «Acaba» per acabar
     </div>
 
     <!-- Hint shown when a drop is rejected (no active layer / already placed) -->
