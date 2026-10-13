@@ -2,6 +2,7 @@
 import type { ActionParameterDto } from '~/types/api'
 import { catalog as outputCatalog, actionParams, isOutputKind, type CatalogType } from '~/types/catalog'
 import { assetNameFor, audioFileWindow, formatClock } from '~/utils/audioAssets'
+import { layoutStrip } from '~/utils/stripLayout'
 import { getAudioContext, loadDecodedAudio } from '~/utils/audioCache'
 import { coerceParam, parseRgb } from '~/utils/showCoerce'
 
@@ -198,21 +199,8 @@ const previewRange = computed(() => ({
   first: typeof previewParams.value.first === 'number' ? previewParams.value.first : null,
   last: typeof previewParams.value.last === 'number' ? previewParams.value.last : null
 }))
-/** Piece attributes that give the number of LEDs of the figure (technical or visible name). */
-const LED_COUNT_ATTRS = new Set(['leds', 'led', 'num_leds', 'n_leds', 'led_count', 'longitud', 'length', 'pixels', 'nombre_de_led', 'nombre de led'])
-const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').trim()
-
 /** LEDs of the figure according to its own numeric attribute (e.g. «Longitud»), or null. */
-const pieceLedCount = computed<number | null>(() => {
-  for (const a of detail.value?.attributeValues ?? []) {
-    if (!NUMERIC_TYPES.has(a.type) || a.value == null) continue
-    if (LED_COUNT_ATTRS.has(normalize(a.attributeName)) || LED_COUNT_ATTRS.has(normalize(a.displayName ?? ''))) {
-      const n = Math.round(Number(a.value))
-      if (Number.isFinite(n) && n > 0) return n
-    }
-  }
-  return null
-})
+const pieceLedCount = computed<number | null>(() => (piece.value ? catalog.ledLengthOf(piece.value.id) : null))
 /** LEDs of the port of the action's type assigned to the item (segment range or strip length), or null. */
 const portLedCount = computed<number | null>(() => {
   const typeId = selectedAction.value ? catalog.typeIdOfAction(selectedAction.value.id) : undefined
@@ -417,6 +405,44 @@ function togglePort(portId: number, checked: boolean) {
     : current.filter(id => id !== portId)
   scene.updateItem(item.value.id, { ports: next })
 }
+
+// ----- pieces along a LED strip: order and LED ranges -----
+/** Strip ports assigned to the item: each lists the pieces on it in LED order, with their ranges. */
+const stripsOfItem = computed(() => {
+  if (!item.value) return []
+  return (item.value.ports ?? [])
+    .map(id => catalog.portById(id))
+    .filter((p): p is NonNullable<typeof p> => !!p && p.kind === 'led_strip')
+    .map((port) => {
+      const mates = scene.itemsOnPort(port.id)
+      const stripLength = typeof port.config?.length === 'number' ? port.config.length : null
+      const layout = layoutStrip(mates.map(m => m.id), id => catalog.ledLengthOf(mates.find(m => m.id === id)!.pieceId), stripLength)
+      return {
+        port,
+        stripLength,
+        rows: mates.map((m, index) => {
+          const slot = layout.get(m.id)!
+          return {
+            itemId: m.id,
+            name: catalog.pieceById(m.pieceId)?.name ?? `#${m.pieceId}`,
+            length: slot.length,
+            explicit: slot.explicit,
+            first: slot.offset,
+            last: slot.offset + slot.length - 1,
+            overflow: stripLength != null && slot.offset + slot.length > stripLength,
+            needsLength: !slot.explicit && index < mates.length - 1
+          }
+        })
+      }
+    })
+})
+// Lengths come from the piece details: load them for every piece sharing a strip with this item.
+watch(stripsOfItem, (strips) => {
+  for (const s of strips) for (const row of s.rows) {
+    const mate = scene.itemById(row.itemId)
+    if (mate) catalog.ensurePieceDetail(mate.pieceId)
+  }
+}, { immediate: true })
 </script>
 
 <template>
@@ -637,6 +663,31 @@ function togglePort(portId: number, checked: boolean) {
       <p v-else class="text-[11.5px] text-ink-muted">
         Aquest article no té cap port compatible.
       </p>
+
+      <!-- Pieces sharing a LED strip: their order along the strip decides which LEDs each one gets -->
+      <div v-for="s in stripsOfItem" :key="'strip' + s.port.id" class="mt-2 flex flex-col gap-1 rounded-[6px] border border-line bg-bg-soft p-2">
+        <span class="text-[11px] font-semibold text-ink-soft">
+          Ordre a «{{ s.port.name }}»<span v-if="s.stripLength != null" class="font-normal text-ink-muted"> · {{ s.stripLength }} LED</span>
+        </span>
+        <div v-for="(row, index) in s.rows" :key="row.itemId"
+          class="flex items-center gap-1.5 text-[12px]"
+          :class="row.itemId === item.id ? 'font-medium text-ink' : 'text-ink-soft'">
+          <span class="w-4 flex-shrink-0 text-right text-[11px] text-ink-muted">{{ index + 1 }}.</span>
+          <span class="min-w-0 flex-1 truncate" :title="row.name">{{ row.name }}</span>
+          <span class="flex-shrink-0 font-mono text-[11px] tabular-nums" :class="row.overflow || row.needsLength ? 'text-danger' : 'text-ink-muted'">
+            <template v-if="row.length > 0">LED {{ row.first }}–{{ row.last }}</template>
+            <template v-else>sense LED</template>
+            <template v-if="!row.explicit"> (resta)</template>
+          </span>
+          <button class="btn !h-6 !w-6 !px-0 !text-[11px]" :disabled="index === 0" title="Abans a la tira" @click="scene.moveItemOnPort(s.port.id, row.itemId, -1)">▲</button>
+          <button class="btn !h-6 !w-6 !px-0 !text-[11px]" :disabled="index === s.rows.length - 1" title="Després a la tira" @click="scene.moveItemOnPort(s.port.id, row.itemId, 1)">▼</button>
+        </div>
+        <p class="text-[11px] text-ink-muted">
+          Cada peça ocupa tants LED com diu el seu atribut «Longitud», un darrere l'altra en aquest ordre; l'última pot quedar-se la resta. Els «primer/últim LED» dels clips es compten dins de la peça.
+        </p>
+        <p v-if="s.rows.some(r => r.needsLength)" class="text-[11px] text-danger">Una peça sense longitud només pot anar l'última.</p>
+        <p v-if="s.rows.some(r => r.overflow)" class="text-[11px] text-danger">Les peces sumen més LED dels que té la tira.</p>
+      </div>
 
       <!-- Assignments to ports deleted after the scene was saved: export refuses them until removed -->
       <div v-if="stalePortIds.length" class="mt-1 flex flex-col gap-1 rounded-[6px] border border-danger-soft bg-danger-soft p-2">

@@ -23,6 +23,7 @@ import { buildExecutionPlan, type CatalogLookups } from '~/utils/exportBundle'
 import { coerceParam } from '~/utils/showCoerce'
 import { buildHardware } from '~/utils/showHardware'
 import { validateShowPackage } from '~/utils/showValidate'
+import { layoutStrip, orderItems, uniqueName } from '~/utils/stripLayout'
 
 // Builds the `stocka-show` v2 package from the editor document. The execution plan resolves
 // clips into steps per board item; here each step becomes one event per port of the item that
@@ -80,6 +81,39 @@ export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPac
   issues.push(...built.issues)
   const hardware = built.hardware
 
+  // Pieces on a LED strip become segments of it: laid out in the scene's strip order, each as
+  // long as its length attribute (the last one may take the rest). Their clips then target the
+  // segment with first/last relative to the piece, exactly like a segment port would.
+  const segmentOf = new Map<string, Map<number, string>>()
+  const taken = new Set(Object.keys(hardware))
+  for (const port of input.orgPorts) {
+    if (port.kind !== 'led_strip') continue
+    const onPort = plan.items.filter(i => i.ports.some(p => p.id === port.id))
+    if (onPort.length === 0) continue
+    const ordered = orderItems(onPort.map(i => i.itemId), input.doc.stripOrder?.[String(port.id)])
+    const stripLength = typeof port.config?.length === 'number' ? port.config.length : null
+    const layout = layoutStrip(ordered, id => input.catalog.ledLengthOf?.(onPort.find(i => i.itemId === id)!.pieceId) ?? null, stripLength)
+    ordered.forEach((itemId, index) => {
+      const item = onPort.find(i => i.itemId === itemId)!
+      const slot = layout.get(itemId)!
+      const pieceName = item.pieceName ?? itemId
+      if (!slot.explicit && index < ordered.length - 1) {
+        issues.push(issue('error', 'E_LED_LENGTH',
+          `«${pieceName}» no té atribut de longitud (LED) i no és l'última peça de «${port.name}»: posa-li la longitud o mou-la al final.`))
+        return
+      }
+      if (slot.length <= 0) {
+        issues.push(issue('error', 'E_LED_LENGTH',
+          `«${pieceName}» no té cap LED a «${port.name}»: les peces anteriors ja omplen la tira${slot.explicit ? '' : ' i no té atribut de longitud'}.`))
+        return
+      }
+      const name = uniqueName(pieceName, taken)
+      hardware[name] = { kind: 'led_segment', strip: port.name, first: slot.offset, last: slot.offset + slot.length - 1 }
+      if (!segmentOf.has(itemId)) segmentOf.set(itemId, new Map())
+      segmentOf.get(itemId)!.set(port.id, name)
+    })
+  }
+
   const assets = { audio: new Set<string>(), video: new Set<string>() }
   const assetRefs = new Map<string, ShowAssetRef>()
   const events: ShowEvent[] = []
@@ -98,7 +132,11 @@ export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPac
       continue
     }
     for (const port of targets) {
-      const spec = kinds[port.kind]
+      // A piece on a strip drives its own segment, unless the action is strip-wide (setBrightness).
+      const segment = segmentOf.get(item.itemId)?.get(port.id)
+      const useSegment = segment != null && step.action.name in kinds.led_segment.actions
+      const targetName = useSegment ? segment : port.name
+      const spec = kinds[useSegment ? 'led_segment' : port.kind]
       const action = spec?.actions[step.action.name]
       if (!spec || !action) {
         issues.push(issue('error', 'E_ACTION_UNKNOWN',
@@ -175,7 +213,7 @@ export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPac
         }
       }
       if (!valid) continue
-      events.push({ t: step.startMs, target: port.name, action: step.action.name, params })
+      events.push({ t: step.startMs, target: targetName, action: step.action.name, params })
     }
   }
 

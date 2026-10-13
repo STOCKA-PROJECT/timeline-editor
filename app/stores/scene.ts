@@ -13,6 +13,7 @@ import {
   type SceneTrack
 } from '~/types/editor'
 import { nextId } from '~/utils/ids'
+import { orderItems } from '~/utils/stripLayout'
 
 export const DEFAULT_CLIP_MS = 2000
 
@@ -32,6 +33,7 @@ export const useSceneStore = defineStore('scene', () => {
   const clips = ref<SceneClip[]>([])
   const durationMs = ref(60000)
   const fps = ref(30)
+  const stripOrder = ref<Record<string, string[]>>({})
 
   const version = ref<number | null>(null)
   const loading = ref(false)
@@ -75,7 +77,8 @@ export const useSceneStore = defineStore('scene', () => {
       tracks: tracks.value,
       clips: clips.value,
       durationMs: durationMs.value,
-      fps: fps.value
+      fps: fps.value,
+      stripOrder: stripOrder.value
     }
   }
 
@@ -88,6 +91,7 @@ export const useSceneStore = defineStore('scene', () => {
     clips.value = doc.clips ?? []
     durationMs.value = doc.durationMs ?? base.durationMs
     fps.value = doc.fps ?? base.fps ?? 30
+    stripOrder.value = doc.stripOrder ?? {}
   }
 
   function touch() {
@@ -309,6 +313,26 @@ export const useSceneStore = defineStore('scene', () => {
     items.value = items.value.filter(i => i.id !== id)
     tracks.value = tracks.value.filter(t => t.itemId !== id)
     clips.value = clips.value.filter(c => !trackIds.includes(c.trackId))
+    stripOrder.value = Object.fromEntries(Object.entries(stripOrder.value).map(([port, ids]) => [port, ids.filter(i => i !== id)]))
+    touch()
+  }
+
+  // ----- pieces along a LED strip -----
+  /** Items assigned to a port, in strip order (first LED first). */
+  function itemsOnPort(portId: number): SceneItem[] {
+    const assigned = items.value.filter(i => (i.ports ?? []).includes(portId))
+    const ordered = orderItems(assigned.map(i => i.id), stripOrder.value[String(portId)])
+    return ordered.map(id => assigned.find(i => i.id === id)!)
+  }
+
+  /** Moves an item one place earlier (-1) or later (+1) along the strip of a port. */
+  function moveItemOnPort(portId: number, itemId: string, dir: -1 | 1) {
+    const ids = itemsOnPort(portId).map(i => i.id)
+    const idx = ids.indexOf(itemId)
+    const target = idx + dir
+    if (idx < 0 || target < 0 || target >= ids.length) return
+    ;[ids[idx], ids[target]] = [ids[target]!, ids[idx]!]
+    stripOrder.value = { ...stripOrder.value, [String(portId)]: ids }
     touch()
   }
 
@@ -381,6 +405,7 @@ export const useSceneStore = defineStore('scene', () => {
     clips,
     durationMs,
     fps,
+    stripOrder,
     version,
     loading,
     saving,
@@ -414,6 +439,8 @@ export const useSceneStore = defineStore('scene', () => {
     addItem,
     updateItem,
     removeItem,
+    itemsOnPort,
+    moveItemOnPort,
     ensureTrackForItem,
     addClip,
     updateClip,

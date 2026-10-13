@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import type { Page, PieceAttachmentResponseDto, PieceListItemDto, PieceResponseDto, PieceTypeActionResponseDto, PortResponseDto } from '~/types/api'
 import { isOutputKind, type OutputKind } from '~/types/catalog'
+import { ledLengthFromAttributes } from '~/utils/stripLayout'
 
 /**
  * Read-only catalog of the organization's articles (pieces), its hardware ports and, lazily, the
@@ -164,6 +165,11 @@ export const useCatalogStore = defineStore('catalog', () => {
     return pieceDetails.value[id]
   }
 
+  /** LEDs of a piece from its length attribute (detail must be loaded), or null when unknown. */
+  function ledLengthOf(pieceId: number): number | null {
+    return ledLengthFromAttributes(pieceDetails.value[pieceId]?.attributeValues)
+  }
+
   /** Lazily loads (and caches) a piece's full detail, including its attribute values. */
   async function ensurePieceDetail(id: number): Promise<PieceResponseDto | undefined> {
     if (pieceDetails.value[id]) return pieceDetails.value[id]
@@ -203,6 +209,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     ensureActionsForPiece,
     pieceDetailById,
     ensurePieceDetail,
+    ledLengthOf,
     portById,
     portsForPiece,
     typeIdOfAction,

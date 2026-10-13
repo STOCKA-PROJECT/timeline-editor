@@ -85,6 +85,8 @@ export interface CatalogLookups {
   actionsForPiece: (piece: PieceListItemDto | undefined) => PieceTypeActionResponseDto[]
   /** Piece type that owns an action, when known. */
   typeIdOfAction: (actionId: number) => number | undefined
+  /** LEDs of a piece (its length attribute), for pieces laid out along a strip; null when unknown. */
+  ledLengthOf?: (pieceId: number) => number | null
 }
 
 /** Parses a static parameter value (string-encoded on the action definition) into a JSON value. */

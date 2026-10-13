@@ -268,3 +268,102 @@ describe('audio assets', () => {
     expect(codes(issues.filter(i => i.level === 'error'))).toContain('E_PARAM_RANGE')
   })
 })
+
+describe('pieces sharing a LED strip', () => {
+  const STRIP_TYPE = 5
+  const stripActions = [
+    { id: 51, name: 'fill', displayName: 'Omplir', position: 1, parameters: [
+      { name: 'color', displayName: 'Color', type: 'TEXT' as const, required: true, dynamic: true },
+      { name: 'first', displayName: 'Primer', type: 'INTEGER' as const, required: false, dynamic: true },
+      { name: 'last', displayName: 'Últim', type: 'INTEGER' as const, required: false, dynamic: true }
+    ] },
+    { id: 52, name: 'animate', displayName: 'Animació', position: 2, parameters: [
+      { name: 'animation_type', displayName: 'Animació', type: 'SELECT' as const, required: true, dynamic: true, validators: { options: ['fire', 'stars'] } },
+      { name: 'duration', displayName: 'Durada', type: 'DECIMAL' as const, required: false, dynamic: true, isDuration: true }
+    ] },
+    { id: 53, name: 'clear', displayName: 'Apagar', position: 3, parameters: [] },
+    { id: 54, name: 'setBrightness', displayName: 'Brillantor', position: 4, parameters: [
+      { name: 'brightness', displayName: 'Brillantor', type: 'INTEGER' as const, required: true, dynamic: false, staticValue: '120' }
+    ] }
+  ]
+  const strip = { id: 12, name: 'Tira 1', kind: 'led_strip' as const, pieceTypeId: STRIP_TYPE, pieceTypeName: 'Tira Led', pin: 12, config: { dma: 5, channel: 0, length: 44 }, position: 12, parameters: [] }
+  const houses = [
+    { id: 9, name: 'Casa simple', pieceTypes: [{ id: STRIP_TYPE, name: 'Tira Led', kind: 'led_strip' as const }], status: 'ACTIVE' as const, createdAt: '', updatedAt: '' },
+    { id: 10, name: 'Casa doble', pieceTypes: [{ id: STRIP_TYPE, name: 'Tira Led', kind: 'led_strip' as const }], status: 'ACTIVE' as const, createdAt: '', updatedAt: '' }
+  ]
+  const lengths: Record<number, number | null> = { 9: 16, 10: 28 }
+  const lookups = {
+    pieceById: (id: number) => houses.find(p => p.id === id) ?? fx.catalogLookups.pieceById(id),
+    portById: (id: number) => (id === 12 ? strip : fx.catalogLookups.portById(id)),
+    actionsForPiece: (p: any) => (p && p.pieceTypes.some((t: any) => t.id === STRIP_TYPE) ? stripActions : fx.catalogLookups.actionsForPiece(p)),
+    typeIdOfAction: (id: number) => (stripActions.some(a => a.id === id) ? STRIP_TYPE : fx.catalogLookups.typeIdOfAction(id)),
+    ledLengthOf: (id: number) => lengths[id] ?? null
+  }
+  function stripDoc(clips: Array<{ id: string, item: string, action: number, t: number, params?: Record<string, unknown> }>, stripOrder?: Record<string, string[]>) {
+    const doc = fx.document({ clips: [], tracks: [], items: [] })
+    doc.items = [
+      { id: 'i-casa1', pieceId: 9, layerId: 'layer-1', x: 0, y: 0, width: 10, height: 10, rotation: 0, ports: [12] },
+      { id: 'i-casa2', pieceId: 10, layerId: 'layer-1', x: 0, y: 0, width: 10, height: 10, rotation: 0, ports: [12] }
+    ]
+    doc.tracks = doc.items.map(i => ({ id: `t-${i.id}`, itemId: i.id, name: i.id }))
+    doc.clips = clips.map(c => ({ id: c.id, trackId: `t-${c.item}`, pieceTypeActionId: c.action, startMs: c.t, durationMs: 1000, paramValues: c.params ?? {} }))
+    if (stripOrder) doc.stripOrder = stripOrder
+    return doc
+  }
+  const ports = [...fx.ports, strip]
+
+  it('turns every piece on the strip into a segment, in order, and targets it with piece-relative LEDs', () => {
+    const doc = stripDoc([
+      { id: 'k1', item: 'i-casa1', action: 51, t: 0, params: { color: '#ff0000', first: 0, last: 3 } },
+      { id: 'k2', item: 'i-casa2', action: 52, t: 0, params: { animation_type: 'fire' } },
+      { id: 'k3', item: 'i-casa1', action: 53, t: 5000 },
+      { id: 'k4', item: 'i-casa2', action: 54, t: 6000 }
+    ])
+    const { body, issues } = assembleShowPackage(input({ doc, catalog: lookups, orgPorts: ports }))
+    expect(issues.filter(i => i.level === 'error')).toEqual([])
+    expect(body.hardware['Casa simple']).toEqual({ kind: 'led_segment', strip: 'Tira 1', first: 0, last: 15 })
+    expect(body.hardware['Casa doble']).toEqual({ kind: 'led_segment', strip: 'Tira 1', first: 16, last: 43 })
+    expect(body.timeline.map(e => [e.target, e.action])).toEqual([
+      ['Casa simple', 'fill'], ['Casa doble', 'animate'], ['Casa simple', 'clear'], ['Tira 1', 'setBrightness']
+    ])
+    expect(body.timeline[0]!.params).toEqual({ color: [255, 0, 0], first: 0, last: 3 })
+    // Both pieces animate at once on the same strip without an overlap warning: different targets.
+    expect(codes(issues)).not.toContain('W_OVERLAP_CONTINUOUS')
+  })
+
+  it('follows the saved strip order and the sample still exports unchanged', async () => {
+    const doc = stripDoc([{ id: 'k1', item: 'i-casa1', action: 53, t: 0 }], { 12: ['i-casa2', 'i-casa1'] })
+    const { body } = assembleShowPackage(input({ doc, catalog: lookups, orgPorts: ports }))
+    expect(body.hardware['Casa doble']).toMatchObject({ first: 0, last: 27 })
+    expect(body.hardware['Casa simple']).toMatchObject({ first: 28, last: 43 })
+    const { pkg } = await buildShowPackage(input())
+    expect(pkg).toEqual(expected)
+  })
+
+  it('a piece without length takes the rest of the strip only when it is the last one', () => {
+    const noLength = { ...lookups, ledLengthOf: (id: number) => (id === 10 ? null : lengths[id] ?? null) }
+    const last = assembleShowPackage(input({ doc: stripDoc([{ id: 'k1', item: 'i-casa2', action: 53, t: 0 }]), catalog: noLength, orgPorts: ports }))
+    expect(last.issues.filter(i => i.level === 'error')).toEqual([])
+    expect(last.body.hardware['Casa doble']).toMatchObject({ first: 16, last: 43 })
+    const notLast = assembleShowPackage(input({ doc: stripDoc([{ id: 'k1', item: 'i-casa2', action: 53, t: 0 }], { 12: ['i-casa2', 'i-casa1'] }), catalog: noLength, orgPorts: ports }))
+    expect(codes(notLast.issues.filter(i => i.level === 'error'))).toContain('E_LED_LENGTH')
+  })
+
+  it('reports LEDs beyond the piece or pieces beyond the strip', () => {
+    const outOfPiece = assembleShowPackage(input({ doc: stripDoc([{ id: 'k1', item: 'i-casa1', action: 51, t: 0, params: { color: '#fff', first: 0, last: 20 } }]), catalog: lookups, orgPorts: ports }))
+    const range = outOfPiece.issues.find(i => i.code === 'E_SEGMENT_RANGE')
+    expect(range?.message).toContain('Casa simple')
+    expect(range?.message).toContain('0–15')
+    const tooLong = { ...lookups, ledLengthOf: (id: number) => (id === 10 ? 40 : lengths[id] ?? null) }
+    const overflow = assembleShowPackage(input({ doc: stripDoc([{ id: 'k1', item: 'i-casa2', action: 53, t: 0 }]), catalog: tooLong, orgPorts: ports }))
+    expect(codes(overflow.issues.filter(i => i.level === 'error'))).toContain('E_SEGMENT_RANGE')
+  })
+
+  it('keeps segment names unique against ports and other pieces', () => {
+    const clash = { ...lookups, pieceById: (id: number) => (id === 9 ? { ...houses[0]!, name: 'Focos' } : lookups.pieceById(id)) }
+    const { body } = assembleShowPackage(input({ doc: stripDoc([{ id: 'k1', item: 'i-casa1', action: 53, t: 0 }]), catalog: clash, orgPorts: ports }))
+    expect(body.hardware['Focos']).toMatchObject({ kind: 'relay' })
+    expect(body.hardware['Focos #2']).toMatchObject({ kind: 'led_segment', first: 0, last: 15 })
+    expect(body.timeline[0]!.target).toBe('Focos #2')
+  })
+})

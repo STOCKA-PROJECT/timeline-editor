@@ -73,6 +73,12 @@ export interface SceneDocument {
   clips: SceneClip[]
   durationMs: number
   fps?: number
+  /**
+   * Order of the items along each LED strip port (port id → item ids, first LED first). Items
+   * assigned to the port but missing here go after the listed ones. The export lays the pieces
+   * out one after the other using their length attribute.
+   */
+  stripOrder?: Record<string, string[]>
 }
 
 export function emptyDocument(): SceneDocument {
@@ -84,6 +90,7 @@ export function emptyDocument(): SceneDocument {
     tracks: [],
     clips: [],
     durationMs: 60000,
-    fps: 30
+    fps: 30,
+    stripOrder: {}
   }
 }

@@ -54,6 +54,8 @@ function download(text: string, fileName: string) {
 async function ensureActionsLoaded() {
   const pieceIds = [...new Set(scene.items.map(i => i.pieceId))]
   await Promise.all(pieceIds.map(id => catalog.ensureActionsForPiece(catalog.pieceById(id))))
+  // Piece details carry the LED length used to lay pieces out along a strip.
+  await Promise.all(pieceIds.map(id => catalog.ensurePieceDetail(id)))
 }
 
 async function exportShow() {
