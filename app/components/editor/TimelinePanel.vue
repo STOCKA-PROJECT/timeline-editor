@@ -205,6 +205,8 @@ function startClipDrag(clip: SceneClip, e: PointerEvent, mode: 'move' | 'resize'
 
 // ---- scrub the playhead by clicking/dragging the ruler ----
 function onRulerPointerDown(e: PointerEvent) {
+  // Scrubbing is a drag: without this the browser starts a text selection across the labels.
+  e.preventDefault()
   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
   const seekAt = (clientX: number) => playback.seek((clientX - rect.left) / pxPerMs.value)
   seekAt(e.clientX)
@@ -235,7 +237,7 @@ function selectTrackItem(track: SceneTrack) {
 </script>
 
 <template>
-  <section class="flex h-full min-h-0 flex-col border-t border-line bg-bg-card">
+  <section class="flex h-full min-h-0 flex-col select-none border-t border-line bg-bg-card">
     <!-- Transport bar: everything related to playback lives here, right above the timeline. -->
     <div class="flex items-center gap-3 border-b border-line px-3 py-1.5">
       <EditorPlaybackControls />
