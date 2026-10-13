@@ -363,7 +363,15 @@ onBeforeUnmount(() => { if (hintTimer) clearTimeout(hintTimer) })
           <v-rect
             v-else
             :config="{ width: item.width, height: item.height, fill: '#efe9dc', stroke: '#d4ccba', strokeWidth: 1, cornerRadius: 6 }" />
-          <!-- LEDs of the piece along its path, coloured by the preview at the playhead -->
+          <v-text
+            :config="{ text: pieceName(item), width: item.width, padding: 4, fontSize: 12, fill: '#2a2722', ellipsis: true, wrap: 'none' }" />
+          <v-rect
+            v-if="isSelected(item)"
+            :config="{ width: item.width, height: item.height, stroke: '#3b6cb4', strokeWidth: 2, dash: [6, 4], cornerRadius: 6, listening: false }" />
+          <v-rect
+            v-if="playback.activeItemIds.has(item.id)"
+            :config="{ width: item.width, height: item.height, stroke: '#6b8068', strokeWidth: 3, cornerRadius: 6, listening: false }" />
+          <!-- LEDs of the piece along its path, coloured by the preview at the playhead; drawn last so the outlines never cover them -->
           <v-shape
             v-if="playback.ledEnabled && leds.ledCountOf(item)"
             :config="{ sceneFunc: drawLeds, item, ledCount: leds.ledCountOf(item), listening: false }" />
@@ -373,14 +381,6 @@ onBeforeUnmount(() => { if (hintTimer) clearTimeout(hintTimer) })
               :key="i"
               :config="{ x: end.x - 14, y: end.y - 20, width: 28, align: 'center', text: end.label, fontSize: 10, fontStyle: 'bold', fill: '#3b6cb4', listening: false }" />
           </template>
-          <v-text
-            :config="{ text: pieceName(item), width: item.width, padding: 4, fontSize: 12, fill: '#2a2722', ellipsis: true, wrap: 'none' }" />
-          <v-rect
-            v-if="isSelected(item)"
-            :config="{ width: item.width, height: item.height, stroke: '#3b6cb4', strokeWidth: 2, dash: [6, 4], cornerRadius: 6, listening: false }" />
-          <v-rect
-            v-if="playback.activeItemIds.has(item.id)"
-            :config="{ width: item.width, height: item.height, stroke: '#6b8068', strokeWidth: 3, cornerRadius: 6, listening: false }" />
         </v-group>
       </v-layer>
 
