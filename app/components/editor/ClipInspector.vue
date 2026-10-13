@@ -426,6 +426,21 @@ const stripsOfItem = computed(() => {
       }
     })
 })
+/** Other pieces of the board assigned to the same ports (strips have their own ordered list). */
+const sharedPorts = computed(() => {
+  const me = item.value
+  if (!me) return []
+  return (me.ports ?? [])
+    .map(id => catalog.portById(id))
+    .filter((p): p is NonNullable<typeof p> => !!p && p.kind !== 'led_strip')
+    .map(port => ({
+      port,
+      mates: scene.itemsOnPort(port.id)
+        .filter(m => m.id !== me.id)
+        .map(m => ({ id: m.id, name: catalog.pieceById(m.pieceId)?.name ?? `#${m.pieceId}` }))
+    }))
+    .filter(s => s.mates.length > 0)
+})
 // Lengths come from the piece details: load them for every piece sharing a strip with this item.
 watch(stripsOfItem, (strips) => {
   for (const s of strips) for (const row of s.rows) {
@@ -663,7 +678,10 @@ watch(stripsOfItem, (strips) => {
           class="flex items-center gap-1.5 text-[12px]"
           :class="row.itemId === item.id ? 'font-medium text-ink' : 'text-ink-soft'">
           <span class="w-4 flex-shrink-0 text-right text-[11px] text-ink-muted">{{ index + 1 }}.</span>
-          <span class="min-w-0 flex-1 truncate" :title="row.name">{{ row.name }}</span>
+          <button type="button" class="min-w-0 flex-1 truncate text-left"
+            :class="row.itemId === item.id ? 'cursor-default' : 'hover:underline'"
+            :title="row.itemId === item.id ? row.name : `Selecciona «${row.name}»`"
+            @click="selection.selectItem(row.itemId)">{{ row.name }}</button>
           <span class="flex-shrink-0 font-mono text-[11px] tabular-nums" :class="row.overflow || row.needsLength ? 'text-danger' : 'text-ink-muted'">
             <template v-if="row.length > 0">LED {{ row.first }}–{{ row.last }}</template>
             <template v-else>sense LED</template>
@@ -677,6 +695,14 @@ watch(stripsOfItem, (strips) => {
         </p>
         <p v-if="s.rows.some(r => r.needsLength)" class="text-[11px] text-danger">Una peça sense longitud només pot anar l'última.</p>
         <p v-if="s.rows.some(r => r.overflow)" class="text-[11px] text-danger">Les peces sumen més LED dels que té la tira.</p>
+      </div>
+
+      <!-- Other pieces sharing a port with this one: click to select them -->
+      <div v-for="s in sharedPorts" :key="'shared' + s.port.id" class="mt-2 flex flex-col gap-1 rounded-[6px] border border-line bg-bg-soft p-2">
+        <span class="text-[11px] font-semibold text-ink-soft">També a «{{ s.port.name }}»</span>
+        <button v-for="mate in s.mates" :key="mate.id" type="button"
+          class="truncate text-left text-[12px] text-ink-soft hover:underline" :title="`Selecciona «${mate.name}»`"
+          @click="selection.selectItem(mate.id)">{{ mate.name }}</button>
       </div>
 
       <!-- Assignments to ports deleted after the scene was saved: export refuses them until removed -->
