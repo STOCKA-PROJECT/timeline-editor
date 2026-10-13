@@ -119,13 +119,22 @@ describe('buildShowPackage', () => {
     expect(errors[1]!.clipId).toBe('c03')
   })
 
-  it('rejects a parameter of another animation and an unknown parameter', () => {
+  it('ignores unset or leftover parameters of other animations and rejects an unknown parameter', () => {
     const doc = fx.document()
+    // A type that declares the parameters of several animations on one `animate` action.
     const withIntensity = { ...fx.actionsByType[fx.SEGMENT_TYPE]![1]!, parameters: [...fx.actionsByType[fx.SEGMENT_TYPE]![1]!.parameters, { name: 'intensity', displayName: 'I', type: 'DECIMAL' as const, required: false, dynamic: true }] }
     const lookups = { ...fx.catalogLookups, actionsForPiece: (p: any) => fx.catalogLookups.actionsForPiece(p).map(a => (a.id === 22 ? withIntensity : a)) }
+    // A fade clip that never filled `intensity` (fire's) exports clean.
+    doc.clips.find(c => c.id === 'c12')!.paramValues = { color: '[1,2,3]', from_color: '[0,0,0]' }
+    const clean = assembleShowPackage(input({ doc, catalog: lookups }))
+    expect(clean.issues.filter(i => i.level === 'error')).toEqual([])
+    expect(clean.body.timeline.find(e => e.t === 25000 && e.target === 'Fondo1')!.params).not.toHaveProperty('intensity')
+    // A leftover value for another animation is dropped with a warning, not an error.
     doc.clips.find(c => c.id === 'c12')!.paramValues = { color: '[1,2,3]', from_color: '[0,0,0]', intensity: 0.5 }
-    const { issues } = assembleShowPackage(input({ doc, catalog: lookups }))
-    expect(codes(issues.filter(i => i.level === 'error'))).toContain('E_ANIMATION_PARAM')
+    const leftover = assembleShowPackage(input({ doc, catalog: lookups }))
+    expect(leftover.issues.filter(i => i.level === 'error')).toEqual([])
+    expect(codes(leftover.issues.filter(i => i.level === 'warning'))).toContain('W_ANIMATION_PARAM_IGNORED')
+    expect(leftover.body.timeline.find(e => e.t === 25000 && e.target === 'Fondo1')!.params).not.toHaveProperty('intensity')
 
     const withVolume = { ...fx.actionsByType[fx.AUDIO_TYPE]![0]!, parameters: [...fx.actionsByType[fx.AUDIO_TYPE]![0]!.parameters, { name: 'volume', displayName: 'V', type: 'INTEGER' as const, required: false, dynamic: true }] }
     const lookups2 = { ...fx.catalogLookups, actionsForPiece: (p: any) => fx.catalogLookups.actionsForPiece(p).map(a => (a.id === 31 ? withVolume : a)) }

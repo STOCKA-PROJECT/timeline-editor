@@ -28,9 +28,21 @@ const selectedAction = computed(() => actions.value.find(a => a.id === clip.valu
 const durationParam = computed(() => selectedAction.value?.parameters.find(p => p.isDuration) ?? null)
 // Only dynamic params are editable per clip; static ones use the value fixed on the action.
 // An audio clip edits its file and in-point in the dedicated block below, not as plain inputs.
+// For `animate`, only the parameters of the chosen animation are shown (a type may declare the
+// parameters of every animation on the same action).
 const AUDIO_BLOCK_PARAMS = new Set(['audio_name', 'start'])
 const dynamicParams = computed(() =>
-  selectedAction.value?.parameters.filter(p => p.dynamic && !p.isDuration && !(audioInfo.value && AUDIO_BLOCK_PARAMS.has(p.name))) ?? [])
+  selectedAction.value?.parameters.filter(p =>
+    p.dynamic && !p.isDuration
+    && !(audioInfo.value && AUDIO_BLOCK_PARAMS.has(p.name))
+    && (applicableParamNames.value === null || applicableParamNames.value.has(p.name))) ?? [])
+/** Names the catalog allows for the action with the clip's animation, or null when the action is not in the catalog. */
+const applicableParamNames = computed<Set<string> | null>(() => {
+  const action = selectedAction.value
+  const spec = actionKind.value && action ? outputCatalog.kinds[actionKind.value].actions[action.name] : undefined
+  if (!spec || !action) return null
+  return new Set(Object.keys(actionParams(spec, selectedAnimation.value)))
+})
 
 // ---- audio clips (audio.play): file, window of the file, listen ----
 const audioInfo = computed(() => (clip.value ? audioClipOf(clip.value) : null))

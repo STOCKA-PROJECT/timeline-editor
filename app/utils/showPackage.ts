@@ -114,6 +114,17 @@ export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPac
       for (const [name, raw] of Object.entries(step.params)) {
         const pspec = allowed[name]
         if (!pspec) {
+          // A type may declare the parameters of every animation at once: the ones the clip does
+          // not fill never reach the package, and a value left over from another animation is
+          // dropped with a warning. Only a name no animation knows is an error.
+          if (raw === null || raw === undefined || raw === '') continue
+          const ofOtherAnimation = !!action.animations && Object.values(action.animations).some(a => name in a.params)
+          if (animation && ofOtherAnimation) {
+            issues.push(issue('warning', 'W_ANIMATION_PARAM_IGNORED',
+              `El paràmetre «${name}» no s'aplica a l'animació «${animation}» i no s'exporta (clip «${label}», ${step.startMs} ms).`,
+              { clipId: step.clipId, port: port.name }))
+            continue
+          }
           valid = false
           const code = animation ? 'E_ANIMATION_PARAM' : 'E_PARAM_UNKNOWN'
           issues.push(issue('error', code,
