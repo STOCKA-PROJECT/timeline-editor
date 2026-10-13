@@ -256,7 +256,7 @@ function selectTrackItem(track: SceneTrack) {
             class="sticky left-0 z-10 h-6 flex-shrink-0 border-b border-r border-line bg-bg-soft"
             :style="{ width: labelW + 'px' }">
             <div
-              class="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-accent/40"
+              class="splitter absolute right-0 top-0 h-full w-1.5 cursor-col-resize"
               title="Arrossega per canviar l'amplada; doble clic per restablir-la"
               @pointerdown="labels.startDrag"
               @dblclick="resetLabelWidth" />
@@ -300,7 +300,7 @@ function selectTrackItem(track: SceneTrack) {
               <span class="truncate">{{ group.layer.name }}</span>
               <span class="ml-auto flex-shrink-0 font-normal normal-case tracking-normal">{{ group.tracks.length }}</span>
               <div
-                class="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-accent/40"
+                class="splitter absolute right-0 top-0 h-full w-1.5 cursor-col-resize"
                 @pointerdown.stop="labels.startDrag"
                 @click.stop
                 @dblclick.stop="resetLabelWidth" />
@@ -328,38 +328,39 @@ function selectTrackItem(track: SceneTrack) {
               <span class="truncate">{{ trackItemName(track) }}</span>
               <!-- Same splitter on every row so the column can be resized from anywhere along its edge -->
               <div
-                class="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-accent/40"
+                class="splitter absolute right-0 top-0 h-full w-1.5 cursor-col-resize"
                 @pointerdown.stop="labels.startDrag"
                 @click.stop
                 @dblclick.stop="resetLabelWidth" />
             </div>
             <div
               class="relative h-full min-w-0 flex-1"
-              :class="isTrackSelected(track) ? 'bg-accent-soft/20' : ''"
+              :class="{ 'lane-selected': isTrackSelected(track) }"
               @dblclick="onLaneDblClick(track, $event)">
               <div
                 v-for="clip in scene.clipsForTrack(track.id)"
                 :key="clip.id"
-                class="absolute flex h-7 cursor-grab items-center overflow-hidden rounded-[6px] border text-[11px] text-accent-ink"
-                :class="selection.selectedClipId === clip.id ? 'border-accent bg-accent-soft ring-1 ring-accent' : 'border-accent/50 bg-accent-soft/70'"
+                class="clip absolute flex h-7 cursor-grab items-center overflow-hidden rounded-[6px] text-[11px]"
+                :class="{ 'is-selected': selection.selectedClipId === clip.id }"
                 :style="{ left: clipLeft(clip) + 'px', width: clipWidth(clip) + 'px', top: clipTop(clip) + 'px' }"
                 @pointerdown="startClipDrag(clip, $event, 'move')">
                 <!-- Audio clips show the window of the file they play -->
                 <EditorAudioWave
                   v-if="audioOf(clip)?.url"
                   class="pointer-events-none absolute left-0 top-0.5 opacity-70"
+                  :color-var="selection.selectedClipId === clip.id ? '--c-on-accent' : '--c-accent-ink'"
                   :url="audioOf(clip)!.url"
                   :from-sec="audioOf(clip)!.range.startSec"
                   :to-sec="audioOf(clip)!.range.startSec + clip.durationMs / 1000"
                   :width="clipWidth(clip)"
                   :height="LANE_H - 8" />
-                <span class="relative truncate px-2">{{ clipLabel(clip) }}</span>
+                <span class="relative truncate px-2 font-medium">{{ clipLabel(clip) }}</span>
                 <span
-                  class="absolute left-0 top-0 h-full w-1.5 cursor-ew-resize bg-accent/40"
+                  class="clip-handle absolute left-0 top-0 h-full w-1.5 cursor-ew-resize"
                   title="Retalla el principi"
                   @pointerdown="startClipDrag(clip, $event, 'resize-start')" />
                 <span
-                  class="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize bg-accent/40"
+                  class="clip-handle absolute right-0 top-0 h-full w-1.5 cursor-ew-resize"
                   title="Retalla el final"
                   @pointerdown="startClipDrag(clip, $event, 'resize')" />
               </div>
@@ -382,3 +383,38 @@ function selectTrackItem(track: SceneTrack) {
     </div>
   </section>
 </template>
+
+<style scoped>
+/* Brand tints mixed from the tokens: Tailwind's opacity modifiers cannot apply to colours held in
+   CSS variables, so `bg-accent-soft/70` and friends silently did nothing. */
+.clip {
+  background: color-mix(in oklab, var(--c-accent) 16%, var(--c-bg-card));
+  border: 1px solid color-mix(in oklab, var(--c-accent) 55%, var(--c-line));
+  border-left: 3px solid var(--c-accent);
+  color: var(--c-accent-ink);
+  box-shadow: 0 1px 2px rgba(16, 32, 40, .12);
+  transition: background .12s, box-shadow .12s;
+}
+.clip:hover {
+  background: color-mix(in oklab, var(--c-accent) 26%, var(--c-bg-card));
+}
+.clip.is-selected {
+  background: var(--c-accent);
+  border-color: var(--c-accent-ink);
+  color: var(--c-on-accent);
+  box-shadow: 0 0 0 2px var(--c-bg-card), 0 0 0 4px var(--c-accent);
+  z-index: 1;
+}
+.clip-handle {
+  background: color-mix(in oklab, var(--c-accent) 35%, transparent);
+}
+.clip.is-selected .clip-handle {
+  background: color-mix(in oklab, var(--c-on-accent) 45%, transparent);
+}
+.lane-selected {
+  background: color-mix(in oklab, var(--c-accent) 7%, transparent);
+}
+.splitter:hover {
+  background: color-mix(in oklab, var(--c-accent) 40%, transparent);
+}
+</style>

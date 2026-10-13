@@ -16,7 +16,9 @@ const props = withDefaults(defineProps<{
   height: number
   /** Window drawn in the accent colour (seconds of the file). */
   highlight?: { fromSec: number, toSec: number } | null
-}>(), { highlight: null })
+  /** CSS variable of the base colour (e.g. `--c-on-accent` on a solid accent clip). */
+  colorVar?: string
+}>(), { highlight: null, colorVar: '--c-accent-ink' })
 
 const canvas = ref<HTMLCanvasElement | null>(null)
 const audio = ref<DecodedAudio | null>(null)
@@ -51,7 +53,7 @@ function draw() {
   if (!decoded) return
   const to = props.toSec ?? decoded.peaks.durationSec
   const peaks = peaksBetween(decoded.peaks, props.fromSec, to, w)
-  drawPeaks(ctx, peaks, w, h, props.highlight ? cssVar('--c-ink-muted', '#9a8f80') : cssVar('--c-accent-ink', '#7a3b1e'))
+  drawPeaks(ctx, peaks, w, h, props.highlight ? cssVar('--c-ink-muted', '#9a8f80') : cssVar(props.colorVar, '#084752'))
   if (props.highlight && to > props.fromSec) {
     const pxPerSec = w / (to - props.fromSec)
     const x0 = Math.max(0, Math.floor((props.highlight.fromSec - props.fromSec) * pxPerSec))
@@ -66,7 +68,7 @@ function draw() {
 }
 
 watch(
-  [audio, () => props.width, () => props.height, () => props.fromSec, () => props.toSec, () => props.highlight?.fromSec, () => props.highlight?.toSec],
+  [audio, () => props.width, () => props.height, () => props.fromSec, () => props.toSec, () => props.highlight?.fromSec, () => props.highlight?.toSec, () => props.colorVar],
   () => nextTick(draw),
   { flush: 'post' }
 )
