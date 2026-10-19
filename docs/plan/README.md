@@ -263,6 +263,8 @@ boards/
 
 ### Fase 3 · Canal de subida · 2–8 de noviembre
 
+> **Revisión del 19 de octubre.** El canal de subida pasa a ser un **paquete autocontenido `.belen.zip`** (show + audios) que se descarga con Internet y se entrega a la RPi **sin Internet**: página web servida por la propia RPi sobre la Wi-Fi local (hotspot del móvil o del portátil, o AP propio); la CLI y la pantalla Dispositivo en `localhost` se sustituyen. Detalle en [`paquete-offline.md`](paquete-offline.md). Lo que sigue se conserva como referencia del diseño anterior.
+
 **Objetivo.** Llevar el paquete del portátil a la RPi con un comando, y desde el editor cuando el editor corre en el portátil.
 
 **Por qué una CLI y no el navegador.** El editor en producción se sirve por HTTPS desde Cloudflare Workers. Un navegador no puede hacer peticiones HTTP a `belen1.local` desde una página HTTPS (contenido mixto) y, aunque pudiera, Chrome bloquea el acceso a la red privada desde orígenes públicos. La CLI corre en el portátil y sí llega a la red local.
@@ -303,6 +305,8 @@ No bloquea las fases 1 a 3. Lo único realmente nuevo es el expansor de relés.
 - [ ] Editor: vista previa fiel a la semántica 4.3 para `fill`, `fade`, `turn_on` con `time` y motor con tiempos medidos. Las animaciones se muestran como color medio.
 
 ### Fase 6 · Publicación desde la nube · 23 de noviembre – 6 de diciembre (o después de Navidad si aprieta)
+
+> **Revisión del 19 de octubre.** Pasa a opcional: la RPi no necesita Internet nunca. Lo que importa de esta fase lo cubre la fase C de [`paquete-offline.md`](paquete-offline.md) (paquete generado en el servidor para la app); dispositivos y latido quedan como fase B si sobra tiempo.
 
 **Objetivo.** Que "Enviar al belén" funcione desde el editor desplegado, sin CLI, publicando el paquete en Stocka y dejando que la RPi lo descargue. Encaja con el producto: una asociación tiene varias personas editando y un dispositivo por belén.
 
