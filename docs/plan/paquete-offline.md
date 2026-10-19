@@ -281,6 +281,33 @@ Si el calendario aprieta: A4 se reduce a lo imprescindible (sin reanudación) y 
 - **C**: `GET …/show` produce el mismo hash que el editor para el show de 2026; `GET …/bundle` se importa en la Pi sin cambios.
 - **D**: la app Android descarga paquetes con red, y sin red los sube a la Pi, corta puertos y cambia el show.
 
+## 13. Estado de implementación (19 de octubre de 2026, noche)
+
+Todo lo planificado está implementado y commiteado, un commit por fase. Lo que queda es trabajo con el hardware delante.
+
+| Fase | Repo · commit | Estado |
+|---|---|---|
+| 0 | `timeline-editor` e3d02ca · `rpi4-system` a7a1864 · `backend` 9f8caf5 | Plan y punteros |
+| A1 | `rpi4-system` 731bb3c | `PlayerCore`, almacén, importador, `contract/bundle/`, modo simulado; equivalencia con el core antiguo |
+| A2 | `rpi4-system` 1d68f4f | API + página local (PIN), red `auto`/`ap`, `device.json`, pantalla, `belen.service`, `install.sh`; probado en la Pi en modo simulado |
+| A3 | `timeline-editor` 4b966e7 | «Exportar paquet» (`fflate`); el zip generado lo importa la Pi |
+| A4 | `rpi4-system` 014db94 | Subida reanudable por trozos con reintentos; probada en la Pi |
+| A5 | `rpi4-system` beb61c0, 0bd70d2 | Pantalla como proceso de la sesión gráfica (unidad de usuario); unidades **instaladas y deshabilitadas** en la Pi; hostname `belen` |
+| B | `backend` 8bb7466 · `frontend` 958d005 · `rpi4-system` 42da052 | Tabla `devices` + `POST /player/heartbeat`; página Dispositius; latido desde la Pi |
+| C | `backend` 525af98 · `frontend` 55c6fa6 | Paquete y zip en servidor (golden `sha256:6e46887d…`), herramienta MCP; menú «Descarrega» |
+| D | `belen-app` 8d9f1cb (repo nuevo) | App Capacitor + Vue: login, biblioteca de paquetes, pestaña Pessebre (PIN, estado, cortes, play/stop/panic, envío reanudable) |
+
+Suites: `rpi4-system` 418 tests · `timeline-editor` 232 · `backend` 1996 · `belen-app` 43 (+ 3 de integración contra la Pi real, opcionales).
+
+**Pendiente, con la Pi y el hardware delante (Joan):**
+
+1. Modo `ap` real (`POST /api/net/mode {"mode":"ap"}` o pulsación larga de 10 s): no se ha probado por SSH porque la Pi dejaría el hotspot del portátil. Comprobar desde un portátil ajeno que la Wi-Fi `belen` aparece, que cualquier URL abre la página y que `http://10.42.0.1:8080` responde.
+2. Banco: 20 pases con las salidas reales, cortes de puerto, 10 encendidos en frío (página disponible en menos de 90 s). Después `sudo storage/scripts/install.sh --enable` (activa `belen.service` y `belen-screen.service`, comenta el `@reboot` antiguo). Hoy todo sigue deshabilitado a petición de Joan.
+3. Etiqueta de la caja: `python -m tools.label --qr` en la Pi (PIN y contraseña de la Wi-Fi propia ya generados en `storage/device.json`).
+4. Despliegue por git: el código de la Pi se llevó por `rsync` sobre su clon; tras hacer `push`, en la Pi `git checkout -- . && git pull --ff-only`.
+5. APK: `cd belen-app && pnpm i && pnpm build && npx cap sync android && npx cap open android` (requiere Android SDK). Probar en el móvil la subida por `CapacitorHttp` y el acceso en claro a la Pi.
+6. Producción del backend: desplegar (Flyway aplicará V24) y, si se quiere latido, registrar el dispositivo en Stocka → Dispositius y pegar URL y token en la página de la Pi (Sistema → «Enllaç amb Stocka»).
+
 ## Apéndice · Bluetooth como opción
 
 Si más adelante se quiere mando desde el móvil sin tocar la Wi-Fi: servicio BLE GATT en la RPi (`bluez-peripheral`, probado que instala en su Python 3.13) con el **mismo vocabulario de la API** (estado, play/stop/panic, overrides, `show.json` sin activos nuevos), UUID de servicio `b4b87358-4738-42cf-b803-9f892007aac1` y características `Info` (`be0b6e15-…`), `Control` (`c8517845-…`), `Events` (`655aa88b-…`) y `Transfer` (`38b78dc7-…`), encuadre de fragmentos y autenticación por desafío-respuesta con el secreto del dispositivo. Nunca para el zip: a 5–20 KB/s un audio de 4 MB tarda minutos. Desde el navegador solo en Chromium (Web Bluetooth); desde la app, BLE nativo. Se decide al terminar D2.
