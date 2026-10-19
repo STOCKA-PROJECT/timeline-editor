@@ -77,7 +77,7 @@ Reglas:
 | **B. App móvil** (fase D) | Cambiar el show o cortar puertos desde el móvil | La app descarga los zips del backend cuando hay red y los guarda; junto al belén habla con la **misma API HTTP** de la RPi sobre el hotspot del propio móvil (el móvil conserva su 4G) | Wi-Fi local |
 | **C. Bluetooth** (opcional) | Si la Wi-Fi resulta incómoda para el mando a distancia | Mismo protocolo sobre BLE para control y shows sin activos nuevos; nunca para el zip | Ninguna |
 
-Por qué no se sube desde la página del editor: el editor se sirve por HTTPS desde Cloudflare y un navegador no deja llamar a `http://rpi4b.local` desde una página HTTPS (contenido mixto y bloqueo de red privada). La página servida por la propia RPi no tiene ese problema porque es la RPi quien la sirve. El flujo queda en dos pasos (exportar zip en el editor, soltarlo en la página de la RPi) y funciona en Safari, Firefox, Chrome, Android e iPhone.
+Por qué no se sube desde la página del editor: el editor se sirve por HTTPS desde Cloudflare y un navegador no deja llamar a `http://belen.local` desde una página HTTPS (contenido mixto y bloqueo de red privada). La página servida por la propia RPi no tiene ese problema porque es la RPi quien la sirve. El flujo queda en dos pasos (exportar zip en el editor, soltarlo en la página de la RPi) y funciona en Safari, Firefox, Chrome, Android e iPhone.
 
 ### 2.3 Varias personas y varios portátiles
 
@@ -93,7 +93,7 @@ Por qué no se sube desde la página del editor: el editor se sirve por HTTPS de
   Con Internet (casa, oficina)                              Sin Internet (local del belén)
   ┌─────────────────────────────────────────┐              ┌──────────────────────────────────────────────┐
   │ editor (Workers) → «Exportar paquet»    │   zip en     │ Portátil / móvil ── Wi-Fi local ──► RPi 4B    │
-  │   show.json + audios vía BFF → .belen.zip│  disco/móvil │   http://rpi4b.local:8080  (página + API)    │
+  │   show.json + audios vía BFF → .belen.zip│  disco/móvil │   http://belen.local:8080  (página + API)    │
   │                                                                                                        │
   │   show | bundle  (una sola implementación)│             │                                              │
   │ app (fase D): descarga y guarda bundles │              │ rpi4-system: api · bundle · PlayerCore ·     │
@@ -205,7 +205,7 @@ Cada encendido tiene que terminar, sin intervención, con la RPi alcanzable por 
 ## 6. `timeline-editor` · «Exportar paquet»
 
 - `app/utils/bundle/`: `manifest.ts` (tipos y construcción), `buildBundle.ts` (recibe el `ShowPackage` de `buildShowPackage`, pide los bytes de cada `meta.assets[].attachmentId` al BFF (`catalog.attachmentContentUrl`), calcula `sha256` con WebCrypto, arma el zip con **`fflate`** (pequeña, en streaming, sin dependencias) y devuelve un `Blob`), `fileName.ts` (`<nombre>-<hash8>.belen.zip`). `audioCache.ts` no sirve porque solo guarda el audio decodificado.
-- `Toolbar.vue`: botón **«Exportar paquet»** junto a «Exportar show» (que se mantiene); diálogo de progreso por fichero (modal con `Teleport` como `ImageLightbox.vue`, tokens de `main.css`, textos en catalán) y, al acabar, descarga y una nota: «Obre `http://rpi4b.local:8080` connectat a la Wi-Fi del pessebre i arrossega-hi el fitxer».
+- `Toolbar.vue`: botón **«Exportar paquet»** junto a «Exportar show» (que se mantiene); diálogo de progreso por fichero (modal con `Teleport` como `ImageLightbox.vue`, tokens de `main.css`, textos en catalán) y, al acabar, descarga y una nota: «Obre `http://belen.local:8080` connectat a la Wi-Fi del pessebre i arrossega-hi el fitxer».
 - Errores de `buildShowPackage` bloquean (como hoy); avisos se muestran con `ExportIssues`.
 - Tests vitest en `app/utils/__tests__/bundle/`: manifest, nombres, zip con `fetch` falso y comprobación de que la RPi lo acepta (fixture compartida con `rpi4-system/tests` a través de `contract/bundle/`).
 - No se necesita BFF nuevo ni backend nuevo para la fase A.
@@ -229,7 +229,7 @@ Tabla `devices` (V24) y página Dispositivos en el frontend solo si se quiere ve
 ## 8. App móvil (fase D)
 
 - **Stack recomendado: Capacitor + Vue** (Vite, sin SSR) en un repo nuevo `belen-app`: reutiliza el módulo `bundle/` y los componentes del panel; en Android se permite HTTP en claro hacia la red local (`android:usesCleartextTraffic`) y en iOS la excepción equivalente (`NSAllowsLocalNetworking`). Alternativas: Expo/React Native o Flutter, que obligan a reescribir.
-- Funciones: login en Stocka (`/auth/login` + refresh, 2FA incluido); organizaciones → timelines; **«Descargar»** guarda el `.belen.zip` de la fase C en el móvil (funciona después sin red); junto al belén, el móvil enciende su hotspot (la RPi ya conoce `Realme`) o se conecta al AP de la RPi, la app descubre `rpi4b.local` (o se escribe la IP de la pantalla) y usa la API de la sección 4: **subir paquete** (reanudable), activar, play/stop/panic, **cortes por puerto** en vivo, logs.
+- Funciones: login en Stocka (`/auth/login` + refresh, 2FA incluido); organizaciones → timelines; **«Descargar»** guarda el `.belen.zip` de la fase C en el móvil (funciona después sin red); junto al belén, el móvil enciende su hotspot (la RPi ya conoce `Realme`) o se conecta al AP de la RPi, la app descubre `belen.local` (o se escribe la IP de la pantalla) y usa la API de la sección 4: **subir paquete** (reanudable), activar, play/stop/panic, **cortes por puerto** en vivo, logs.
 - Orden: D1 esqueleto + login + conexión y estado; D2 cortes y mandos; D3 descargar y cargar timelines. Android primero (APK interno); iOS después.
 - Si el cambio de red del móvil resulta molesto, el **apéndice BLE** cubre el mando (cortes, play/stop) sin tocar la Wi-Fi.
 

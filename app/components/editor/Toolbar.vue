@@ -25,8 +25,10 @@ const saveLabel = computed(() => {
 
 // ----- export / import -----
 // "Exportar show" builds the stocka-show package the Raspberry Pi executes (ports → hardware,
-// clips → events with coerced parameters); it is refused while there are errors. "Còpia de
-// seguretat" downloads the editor document plus the execution plan, which "Importar" reads back.
+// clips → events with coerced parameters); it is refused while there are errors. "Exportar paquet"
+// wraps that same package with its audio files in a `.belen.zip` (see `useBundleExport`) to drop on
+// the Pi's local page without Internet. "Còpia de seguretat" downloads the editor document plus the
+// execution plan, which "Importar" reads back.
 const selection = useSelectionStore()
 const catalog = useCatalogStore()
 const { ensureAudioLoaded } = useAudioClips()
@@ -36,6 +38,8 @@ const exportError = ref<string | null>(null)
 const issues = ref<{ errors: ShowIssue[], warnings: ShowIssue[], fileName?: string } | null>(null)
 const issuesOpen = ref(false)
 const exporting = ref(false)
+// The bundle dialog owns its export; while it is open the other exports stay out of the way.
+const bundleOpen = ref(false)
 
 function fileBaseName(): string {
   return (scene.timelineName || 'show').trim().replace(/[^\w.-]+/g, '_')
@@ -189,6 +193,10 @@ const statusTone = computed(() => {
           title="Genera el paquet de show (.show.json) per al reproductor del pessebre"
           @click="exportShow()">{{ exporting ? 'Exportant…' : 'Exportar show' }}</button>
         <button
+          class="btn btn-sm" :disabled="exporting || bundleOpen"
+          title="Genera el paquet autocontingut (.belen.zip) amb el show i els seus fitxers d'àudio, per portar-lo a la Raspberry Pi del pessebre sense Internet"
+          @click="bundleOpen = true">Exportar paquet</button>
+        <button
           class="btn btn-sm btn-quiet" :disabled="exporting"
           title="Descarrega el document de l'editor per poder-lo importar més tard"
           @click="exportBackup()">Còpia de seguretat</button>
@@ -215,5 +223,6 @@ const statusTone = computed(() => {
       :warnings="issues.warnings"
       :file-name="issues.fileName"
       @close="issuesOpen = false" />
+    <EditorBundleExportDialog v-if="bundleOpen" @close="bundleOpen = false" />
   </header>
 </template>
