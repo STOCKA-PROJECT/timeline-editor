@@ -25,7 +25,7 @@ import { buildHardware } from '~/utils/showHardware'
 import { validateShowPackage } from '~/utils/showValidate'
 import { layoutStrip, orderItems, uniqueName } from '~/utils/stripLayout'
 
-// Builds the `stocka-show` v2 package from the editor document. The execution plan resolves
+// Builds the `stocka-show` v3 package from the editor document. The execution plan resolves
 // clips into steps per board item; here each step becomes one event per port of the item that
 // belongs to the piece type owning the action, with parameters coerced to the catalog types.
 
@@ -114,7 +114,7 @@ export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPac
     })
   }
 
-  const assets = { audio: new Set<string>(), video: new Set<string>() }
+  const assets = { audio: new Set<string>() }
   const assetRefs = new Map<string, ShowAssetRef>()
   const events: ShowEvent[] = []
   const itemById = new Map(plan.items.map(i => [i.itemId, i]))
@@ -183,7 +183,7 @@ export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPac
         if (res.omitted) continue
         params[name] = res.value
         if (pspec.asset && typeof res.value === 'string') {
-          assets[pspec.asset].add(res.value)
+          assets.audio.add(res.value)
           if (pspec.asset === 'audio' && input.audioByPiece && item.pieceId in input.audioByPiece) {
             const files = input.audioByPiece[item.pieceId] ?? []
             const att = findAudioByAssetName(files, res.value)
@@ -228,7 +228,7 @@ export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPac
     hardware,
     timeline,
     durationMs: input.doc.durationMs,
-    assets: { audio: [...assets.audio], video: [...assets.video] }
+    assets: { audio: [...assets.audio] }
   }
   issues.push(...validateShowPackage({ ...body, meta: { name: '', timelineId: null, exportedAt: '', hash: '' } }, outputCatalog))
   return { body, issues, assetRefs: [...assetRefs.values()] }

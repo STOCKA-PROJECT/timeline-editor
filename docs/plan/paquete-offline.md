@@ -308,6 +308,8 @@ Suites: `rpi4-system` 418 tests · `timeline-editor` 232 · `backend` 1996 · `b
 5. APK: `cd belen-app && pnpm i && pnpm build && npx cap sync android && npx cap open android` (requiere Android SDK). Probar en el móvil la subida por `CapacitorHttp` y el acceso en claro a la Pi.
 6. Producción del backend: desplegar (Flyway aplicará V24) y, si se quiere latido, registrar el dispositivo en Stocka → Dispositius y pegar URL y token en la página de la Pi (Sistema → «Enllaç amb Stocka»).
 
+**Siguiente fase (20 de octubre):** [`fase4-hardware-2026.md`](fase4-hardware-2026.md) — banco y hardware 2026 (relés + expansor, jack, `maxUpTime`, sin proyector, cabezal DMX).
+
 ## Apéndice · Bluetooth como opción
 
 Si más adelante se quiere mando desde el móvil sin tocar la Wi-Fi: servicio BLE GATT en la RPi (`bluez-peripheral`, probado que instala en su Python 3.13) con el **mismo vocabulario de la API** (estado, play/stop/panic, overrides, `show.json` sin activos nuevos), UUID de servicio `b4b87358-4738-42cf-b803-9f892007aac1` y características `Info` (`be0b6e15-…`), `Control` (`c8517845-…`), `Events` (`655aa88b-…`) y `Transfer` (`38b78dc7-…`), encuadre de fragmentos y autenticación por desafío-respuesta con el secreto del dispositivo. Nunca para el zip: a 5–20 KB/s un audio de 4 MB tarda minutos. Desde el navegador solo en Chromium (Web Bluetooth); desde la app, BLE nativo. Se decide al terminar D2.

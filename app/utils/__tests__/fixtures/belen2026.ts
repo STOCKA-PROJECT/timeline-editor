@@ -38,8 +38,6 @@ export const pieces: PieceListItemDto[] = [
 
 export const actionsByType: Record<number, PieceTypeActionResponseDto[]> = {
   [RELAY_TYPE]: [
-    action(11, 'focoOn', 'Encendre focus', []),
-    action(12, 'focoOff', 'Apagar focus', []),
     action(13, 'turn_on', 'Encendre', []),
     action(14, 'turn_off', 'Apagar', [])
   ],
@@ -99,14 +97,14 @@ export const tracks: SceneTrack[] = items.map(i => ({ id: `t-${i.id}`, itemId: i
 
 /** Clips in the order the sample lists its events, so stable sorting reproduces that order. */
 export const clips: SceneClip[] = [
-  clip('c01', 'i-focos', 11, 0, 1000),
+  clip('c01', 'i-focos', 13, 0, 1000),
   clip('c02', 'i-fondo1', 21, 0, 1000, { color: '[255,50,0]' }),
   clip('c03', 'i-fondo2', 21, 0, 1000, { color: '[255,50,0]' }),
   clip('c04', 'i-casasimple', 21, 0, 1000, { color: '[255,50,0]' }),
   clip('c05', 'i-casadoble', 21, 0, 1000, { color: '[50,16,0]' }),
   clip('c06', 'i-audio', 31, 0, 1000, { audio_name: 'nature.mp3' }),
   clip('c07', 'i-sembra', 13, 7000, 1000),
-  clip('c08', 'i-focos', 12, 20000, 1000),
+  clip('c08', 'i-focos', 14, 20000, 1000),
   clip('c09', 'i-sembra', 14, 23000, 1000),
   clip('c10', 'i-casasimple', 22, 24000, 3000, { color: '[0,0,0]', from_color: '[255,50,0]' }),
   clip('c11', 'i-casadoble', 22, 24000, 3000, { color: '[0,0,0]', from_color: '[50,16,0]' }),
@@ -116,7 +114,7 @@ export const clips: SceneClip[] = [
   clip('c15', 'i-llumse', 41, 30000, 21000),
   clip('c16', 'i-sembra', 14, 118000, 1000),
   clip('c17', 'i-audio', 32, 118000, 1000),
-  clip('c18', 'i-focos', 12, 118000, 1000),
+  clip('c18', 'i-focos', 14, 118000, 1000),
   clip('c19', 'i-casasimple', 22, 118000, 4000, { color: '[0,0,0]', from_color: '[255,50,0]' }),
   clip('c20', 'i-casadoble', 22, 118000, 4000, { color: '[0,0,0]', from_color: '[50,16,0]' }),
   clip('c21', 'i-fondo1', 22, 118000, 4000, { color: '[0,0,0]', from_color: '[255,50,0]' }),

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://stocka.xeye.es/contract/bundle/bundle.schema.json",
   "title": "stocka-bundle manifest",
-  "description": "manifest.json de un paquete autocontenido .belen.zip: un show stocka-show v2 más sus ficheros de audio y vídeo, con el sha256 de cada fichero para que la Raspberry Pi pueda verificarlo sin red.",
+  "description": "manifest.json de un paquete autocontenido .belen.zip: un show stocka-show v3 más sus ficheros de audio, con el sha256 de cada fichero para que la Raspberry Pi pueda verificarlo sin red.",
   "type": "object",
   "additionalProperties": false,
   "required": ["format", "version", "show", "files", "createdAt", "createdBy"],
@@ -28,10 +28,10 @@
         "additionalProperties": false,
         "required": ["path", "sha256", "size"],
         "properties": {
-          "path": { "type": "string", "pattern": "^(show\\.json|assets/(audio|video)/[^/\\\\]+)$" },
+          "path": { "type": "string", "pattern": "^(show\\.json|assets/audio/[^/\\\\]+)$" },
           "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
           "size": { "type": "integer", "minimum": 0 },
-          "kind": { "enum": ["show", "audio", "video"] }
+          "kind": { "enum": ["show", "audio"] }
         }
       }
     },

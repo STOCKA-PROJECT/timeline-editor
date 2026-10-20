@@ -3,6 +3,7 @@ import type { ShowPackage } from '~/types/show'
 import { buildHardware } from '~/utils/showHardware'
 import { validateShowPackage } from '~/utils/showValidate'
 import sample from './fixtures/belen-2026.show.json'
+import complet from './fixtures/pessebre-2026-complet.show.json'
 import { ports } from './fixtures/belen2026'
 
 function pkg(mutate: (p: ShowPackage) => void = () => {}): ShowPackage {
@@ -13,6 +14,13 @@ function pkg(mutate: (p: ShowPackage) => void = () => {}): ShowPackage {
 
 function codes(p: ShowPackage, level?: 'error' | 'warning') {
   return validateShowPackage(p).filter(i => !level || i.level === level).map(i => i.code)
+}
+
+/** The complete 2026 sample (expander relays, two moving heads, the angel), optionally mutated. */
+function full(mutate: (p: ShowPackage) => void = () => {}): ShowPackage {
+  const copy = JSON.parse(JSON.stringify(complet)) as ShowPackage
+  mutate(copy)
+  return copy
 }
 
 describe('buildHardware', () => {
@@ -74,8 +82,8 @@ describe('validateShowPackage', () => {
 
   it('pins: duplicates (strip, motor), reserved, pull-up warning, board range', () => {
     expect(codes(pkg(p => { p.hardware.Focos!.pin = 13 }))).toContain('E_PIN_DUPLICATE')
-    expect(codes(pkg(p => { p.hardware.Angel = { kind: 'motor', pinR: 26, pinL: 4, sensorPin: 5, downTime: 10 } }))).toContain('E_PIN_DUPLICATE')
-    expect(codes(pkg(p => { p.hardware.Angel = { kind: 'motor', pinR: 4, pinL: 4, sensorPin: 5, downTime: 10 } }))).toContain('E_CONFIG_INVALID')
+    expect(codes(pkg(p => { p.hardware.Angel = { kind: 'motor', pinR: 26, pinL: 4, sensorPin: 5, downTime: 10, maxUpTime: 13 } }))).toContain('E_PIN_DUPLICATE')
+    expect(codes(pkg(p => { p.hardware.Angel = { kind: 'motor', pinR: 4, pinL: 4, sensorPin: 5, downTime: 10, maxUpTime: 13 } }))).toContain('E_CONFIG_INVALID')
     expect(codes(pkg(p => { p.hardware.Focos!.pin = 0 }))).toContain('E_PIN_RESERVED')
     expect(codes(pkg(p => { p.hardware.Focos!.pin = 40 }))).toContain('E_PIN_OUT_OF_BOARD')
     const pullup = pkg(p => { p.hardware.Focos!.pin = 6 })
@@ -135,5 +143,63 @@ describe('validateShowPackage', () => {
     })
     expect(validateShowPackage(overlap).filter(i => i.code === 'W_OVERLAP_CONTINUOUS').length).toBeGreaterThanOrEqual(2)
     expect(codes(pkg(p => { p.hardware.Audio2 = { kind: 'audio' } }), 'warning')).toContain('W_LEGACY_SINGLE')
+  })
+})
+
+describe('validateShowPackage · contract v3 (expanders, moving heads, motor)', () => {
+  it('accepts the complete 2026 sample with no errors', () => {
+    expect(codes(full(), 'error')).toEqual([])
+    expect(codes(full(), 'warning')).not.toContain('W_PORT_UNUSED')
+  })
+
+  it('relays: a pin or expander + channel, never both; activeLow only on native relays', () => {
+    expect(codes(full(p => { p.hardware.Estable!.pin = 22 }))).toContain('E_CONFIG_INVALID')
+    expect(codes(full(p => { delete p.hardware.Estable!.channel }))).toContain('E_CONFIG_INVALID')
+    expect(codes(full(p => { p.hardware.Sembra = { kind: 'relay' } }))).toContain('E_CONFIG_INVALID')
+    expect(codes(full(p => { p.hardware.Sembra!.channel = 2 }))).toContain('E_CONFIG_INVALID')
+    expect(codes(full(p => { p.hardware.Estable!.activeLow = true }))).toContain('E_CONFIG_INVALID')
+    expect(codes(full(p => { p.hardware.Sembra!.activeLow = true }), 'error')).toEqual([])
+    expect(codes(full(p => { p.hardware.Audio!.pin = 5 }))).toContain('E_CONFIG_INVALID')
+  })
+
+  it('expanders: existing reference, unique channel, unique I2C address per bus, GPIO 2/3 reserved', () => {
+    expect(codes(full(p => { p.hardware.Estable!.expander = 'exp9' }))).toContain('E_EXPANDER_MISSING')
+    expect(codes(full(p => { p.hardware.Estable!.expander = 'Sembra' }))).toContain('E_EXPANDER_MISSING')
+    expect(codes(full(p => { p.hardware.Pou!.channel = 3 }))).toContain('E_EXPANDER_CHANNEL_DUPLICATE')
+    expect(codes(full(p => { p.hardware.exp2 = { kind: 'gpio_expander', chip: 'mcp23017', bus: 1, address: 32 } }))).toContain('E_I2C_ADDRESS_DUPLICATE')
+    expect(codes(full(p => { p.hardware.exp2 = { kind: 'gpio_expander', chip: 'mcp23017', bus: 0, address: 32 } }))).not.toContain('E_I2C_ADDRESS_DUPLICATE')
+    expect(codes(full(p => { p.hardware.Sembra!.pin = 2 }))).toContain('E_PIN_RESERVED')
+    const noExpander = pkg(p => { p.hardware.Sembra!.pin = 3 })
+    expect(codes(noExpander, 'error')).not.toContain('E_PIN_RESERVED')
+    expect(codes(noExpander, 'warning')).toContain('W_PIN_PULLUP')
+  })
+
+  it('moving heads: inside the universe, no overlaps, physical units, empty cue warns', () => {
+    expect(codes(full(p => { p.hardware.Foco2!.address = 500 }))).toContain('E_DMX_ADDRESS_RANGE')
+    expect(codes(full(p => { p.hardware.Foco2!.address = 498 }))).not.toContain('E_DMX_ADDRESS_RANGE')
+    expect(codes(full(p => { p.hardware.Foco2!.address = 15 }))).toContain('E_DMX_ADDRESS_OVERLAP')
+    expect(codes(full(p => { p.hardware.Foco2!.address = 16 }))).not.toContain('E_DMX_ADDRESS_OVERLAP')
+    const cue = (p: ShowPackage) => p.timeline.find(e => e.target === 'Foco' && e.action === 'set')!
+    expect(codes(full(p => { cue(p).params.pan = 541 }))).toContain('E_PARAM_TYPE')
+    expect(codes(full(p => { cue(p).params.zoom = 5 }))).toContain('E_PARAM_TYPE')
+    expect(codes(full(p => { cue(p).params.strobe = 1 }))).toContain('E_PARAM_UNKNOWN')
+    const empty = full(p => { p.timeline.push({ t: 1000, target: 'Foco', action: 'set', params: { time: 2 } }) })
+    expect(codes(empty, 'error')).toEqual([])
+    expect(codes(empty, 'warning')).toContain('W_EMPTY_CUE')
+  })
+
+  it('motor: maxUpTime required, start_up within it, a short one warns', () => {
+    expect(codes(full(p => { delete p.hardware.Angel!.maxUpTime }))).toContain('E_CONFIG_INVALID')
+    const up = (p: ShowPackage) => p.timeline.find(e => e.action === 'start_up')!
+    expect(codes(full(p => { up(p).params.time = 25 }))).toContain('E_MOTOR_UP_TIME')
+    expect(codes(full(p => { up(p).params.time = 24 }))).not.toContain('E_MOTOR_UP_TIME')
+    const short = full(p => { p.hardware.Angel!.maxUpTime = 10 })
+    expect(codes(short, 'error')).toEqual([])
+    expect(codes(short, 'warning')).toContain('W_MOTOR_UP_TIME_SHORT')
+  })
+
+  it('the projector is gone: video kind and focoOn are unknown', () => {
+    expect(codes(pkg(p => { p.hardware.Video = { kind: 'video' as never } }))).toContain('E_KIND_UNKNOWN')
+    expect(codes(pkg(p => { p.timeline[0]!.action = 'focoOn' }))).toContain('E_ACTION_UNKNOWN')
   })
 })

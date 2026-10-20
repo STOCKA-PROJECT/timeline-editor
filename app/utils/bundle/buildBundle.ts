@@ -4,15 +4,15 @@ import { bundleFileName } from '~/utils/bundle/fileName'
 import { buildManifest, serializeManifest, type BundleFileEntry, type BundleFileKind, type BundleManifest } from '~/utils/bundle/manifest'
 import { serializeShowPackage } from '~/utils/showPackage'
 
-// Builds a `.belen.zip` in the browser: `manifest.json` first, `show.json` deflated, audio and
-// video stored as they are (already compressed). Mirrors `rpi4-system/tools/bundle_tool.py`; the
+// Builds a `.belen.zip` in the browser: `manifest.json` first, `show.json` deflated, audio
+// stored as it is (already compressed). Mirrors `rpi4-system/tools/bundle_tool.py`; the
 // Pi's importer (`rpi4-system/app/bundle.py`) accepts both outputs the same way.
 
 export const MANIFEST_FILE = 'manifest.json'
 export const SHOW_FILE = 'show.json'
 export const DEFAULT_CREATED_BY = 'timeline-editor'
 
-const ASSET_KINDS = ['audio', 'video'] as const
+const ASSET_KINDS = ['audio'] as const
 const DEFLATE_LEVEL = 6
 const STORED = 0
 
@@ -75,8 +75,8 @@ export function showJsonBytes(pkg: ShowPackage): Uint8Array {
 }
 
 /**
- * Every file the zip must contain, in zip order: `show.json`, then the audio assets, then the
- * video assets, each as `show.assets` lists them. An asset whose origin the package does not know
+ * Every file the zip must contain, in zip order: `show.json`, then the audio assets, each as
+ * `show.assets` lists them. An asset whose origin the package does not know
  * (no `meta.assets` entry) is an error: without its attachment there is nothing to download.
  */
 export function planBundleFiles(pkg: ShowPackage): PlannedBundleFile[] {
@@ -86,9 +86,8 @@ export function planBundleFiles(pkg: ShowPackage): PlannedBundleFile[] {
     for (const name of pkg.assets[kind]) {
       const ref = refs.find(r => r.kind === kind && r.name === name)
       if (!ref) {
-        const what = kind === 'audio' ? "d'àudio" : 'de vídeo'
         throw new BundleBuildError(
-          `No se sap d'on ve el fitxer ${what} «${name}»: torna a carregar els fitxers de la peça i exporta de nou.`)
+          `No se sap d'on ve el fitxer d'àudio «${name}»: torna a carregar els fitxers de la peça i exporta de nou.`)
       }
       files.push({ path: assetPath(kind, name), kind, size: ref.sizeBytes, ref })
     }

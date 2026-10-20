@@ -285,6 +285,11 @@ boards/
 
 ### Fase 4 · Banco y hardware nuevo · en paralelo, 12 de octubre – 1 de noviembre
 
+> **Revisión del 20 de octubre.** Replanteada en [`fase4-hardware-2026.md`](fase4-hardware-2026.md): relés estandarizados con el
+> expansor MCP23017 como puerto de infraestructura (`gpio_expander`), audio por jack como en 2025-26, `maxUpTime` obligatorio en el
+> motor, **se elimina el proyector** (`video`, `focoOn/focoOff`) y entra el cabezal móvil Varytec Hero Wash 712 Z por USB→DMX
+> (`kind: moving_head`). Contrato v3. Absorbe la aceptación con hardware de la fase 2. Lo que sigue se conserva como referencia.
+
 No bloquea las fases 1 a 3. Lo único realmente nuevo es el expansor de relés.
 
 - [ ] **Expansor MCP23017 por I2C.** Driver `drivers/mcp23017.py` y soporte en `RelayController` para direcciones `exp1:n`. Confirmar si la placa de relés es activa a nivel bajo y qué hace al arrancar: ningún relé debe activarse solo.
@@ -295,6 +300,10 @@ No bloquea las fases 1 a 3. Lo único realmente nuevo es el expansor de relés.
 - [ ] **Foco.** Medir el retardo entre `focoOn` y la imagen; comprobar que `VideoController` arranca sin escritorio.
 
 ### Fase 5 · Robustez y modo prueba · 9–22 de noviembre
+
+> **Revisión del 20 de octubre.** Hechos el watchdog y el `panic` por pulsación larga (fase A5). El modo prueba e `identify` se
+> adelantan como herramientas del banco ([`fase4-hardware-2026.md`](fase4-hardware-2026.md) §6); la calibración del foco pasa a ser
+> la calibración de posiciones del cabezal móvil, guardadas como acciones con valores estáticos del tipo de pieza.
 
 - [ ] Modo prueba completo: activar o regular cualquier `target` por nombre, elegir color en un segmento, mover el ángel manteniendo la orden (caduca a los 500 ms). Toda orden caduca a los 60 s.
 - [ ] **Identificar**: `belen identify Sembra` enciende tres segundos esa salida para saber qué pieza responde tras cablear.

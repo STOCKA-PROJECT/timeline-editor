@@ -3,7 +3,7 @@ import catalogJson from '~/data/catalog.json'
 // Output catalog shared with the backend and the Raspberry Pi player. `app/data/catalog.json` is a
 // byte-identical copy of `rpi4-system/contract/catalog.json`; keep them in sync (see `version`).
 
-export type OutputKind = 'relay' | 'led_strip' | 'led_segment' | 'motor' | 'audio' | 'video' | 'button'
+export type OutputKind = 'relay' | 'gpio_expander' | 'led_strip' | 'led_segment' | 'motor' | 'audio' | 'moving_head' | 'button'
 export type CatalogType = 'int' | 'number' | 'bool' | 'string' | 'rgb' | 'rgb_list' | 'enum'
 
 export interface CatalogParam {
@@ -16,10 +16,11 @@ export interface CatalogParam {
   /** The single parameter that receives the clip length, in seconds. */
   duration?: boolean
   /** The value names a media file that must travel with the show. */
-  asset?: 'audio' | 'video'
+  asset?: 'audio'
   /** Config keys only: the value must be the name of a port of this kind. */
   ref?: OutputKind
   recommended?: [number, number]
+  notes?: string
 }
 
 export interface CatalogAnimation {
@@ -35,15 +36,33 @@ export interface CatalogAction {
   unsupported?: string[]
   /** Keeps running until replaced on the same target or until its duration ends. */
   continuous?: boolean
+  /** Interpolates from the current state to the new one over the duration parameter (fades, cues). */
+  transition?: boolean
+  notes?: string
 }
 
 export interface CatalogKind {
   controller: string
   infrastructure: boolean
-  pin: boolean
+  /** `true`: always a pin; `'optional'`: a pin unless the config addresses it otherwise (relay on an expander); `false`: never. */
+  pin: boolean | 'optional'
+  notes?: string
   legacy: { addressing: 'name' | 'controller', pinType?: string, module?: string, name?: string }
   config: Record<string, CatalogParam>
   actions: Record<string, CatalogAction>
+}
+
+/** A DMX fixture profile (`profiles.moving_head.<id>`): channel count and physical ranges. */
+export interface FixtureProfile {
+  name: string
+  mode?: string
+  channels: number
+  pan: { max: number }
+  tilt: { max: number }
+  zoom: { min: number, max: number }
+  map: Record<string, number>
+  fixed?: Record<string, number>
+  notes?: string
 }
 
 export interface BoardSpec {
@@ -62,8 +81,23 @@ export interface OutputCatalog {
   version: number
   types: CatalogType[]
   kinds: Record<OutputKind, CatalogKind>
+  profiles?: { moving_head?: Record<string, FixtureProfile> }
   excludedMethods: Record<string, string[]>
   boards: Record<string, BoardSpec>
+}
+
+export type PinMode = 'required' | 'optional' | 'none'
+
+/** How ports of a kind carry their pin. */
+export function pinModeOf(spec: CatalogKind): PinMode {
+  if (spec.pin === true) return 'required'
+  if (spec.pin === 'optional') return 'optional'
+  return 'none'
+}
+
+/** The DMX profile of a moving head, if the catalog knows it. */
+export function movingHeadProfile(id: unknown, outputCatalog: OutputCatalog = catalog): FixtureProfile | undefined {
+  return typeof id === 'string' ? outputCatalog.profiles?.moving_head?.[id] : undefined
 }
 
 export const DEFAULT_BOARD = 'rpi4b'

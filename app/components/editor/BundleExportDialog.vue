@@ -17,7 +17,7 @@ const PHASE_LABEL: Record<BundleExportPhase, string> = {
   done: 'Paquet exportat',
   error: "No s'ha exportat"
 }
-const KIND_LABEL: Record<BundleExportFile['kind'], string> = { show: 'Show', audio: 'Àudio', video: 'Vídeo' }
+const KIND_LABEL: Record<BundleExportFile['kind'], string> = { show: 'Show', audio: 'Àudio' }
 const RPI_URL = 'http://belen.local:8080'
 const RPI_IP_URL = 'http://10.42.0.1:8080'
 
@@ -35,7 +35,7 @@ function percent(file: BundleExportFile): number {
 }
 
 function fileLabel(file: BundleExportFile): string {
-  return file.kind === 'show' ? file.path : file.path.replace(/^assets\/(audio|video)\//, '')
+  return file.kind === 'show' ? file.path : file.path.replace(/^assets\/audio\//, '')
 }
 
 function tryClose() {

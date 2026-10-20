@@ -1,4 +1,4 @@
-import { actionParams, catalog as defaultCatalog, requiredParams, type CatalogParam, type OutputCatalog } from '~/types/catalog'
+import { actionParams, catalog as defaultCatalog, movingHeadProfile, pinModeOf, requiredParams, type CatalogParam, type OutputCatalog } from '~/types/catalog'
 import { issue, type ShowIssue, type ShowPackage } from '~/types/show'
 
 // Semantic rules of a stocka-show package, mirroring `rpi4-system/contract/validate.py`. Runs on
@@ -6,6 +6,9 @@ import { issue, type ShowIssue, type ShowPackage } from '~/types/show'
 // will apply. The schema (structure) is the device's job; here we assume a well-formed object.
 
 type Hardware = ShowPackage['hardware']
+
+const I2C_PINS = [2, 3]
+const DMX_UNIVERSE = 512
 
 /**
  * Strict type check of a value already in package form (no coercion: the device reads it as is).
@@ -82,10 +85,24 @@ export function validateShowPackage(pkg: ShowPackage, catalog: OutputCatalog = d
       const why = checkValue(value, field)
       if (why) issues.push(issue('error', 'E_CONFIG_INVALID', `El port «${name}»: «${key}» ${why}.`, { port: name }))
     }
-    if (spec.pin && typeof entry.pin !== 'number') {
+    const mode = pinModeOf(spec)
+    const hasPin = typeof entry.pin === 'number'
+    if (mode === 'required' && !hasPin) {
       issues.push(issue('error', 'E_CONFIG_INVALID', `El port «${name}» necessita «pin».`, { port: name }))
+    } else if (mode === 'optional') {
+      if ('expander' in entry) {
+        if (hasPin) issues.push(issue('error', 'E_CONFIG_INVALID', `El port «${name}» no pot tenir «pin» i «expander» alhora.`, { port: name }))
+        if (!('channel' in entry)) issues.push(issue('error', 'E_CONFIG_INVALID', `El port «${name}» necessita «channel» amb l'expansor.`, { port: name }))
+        if ('activeLow' in entry) issues.push(issue('error', 'E_CONFIG_INVALID', `El port «${name}»: «activeLow» es declara a l'expansor, no al relé.`, { port: name }))
+      } else if (!hasPin) {
+        issues.push(issue('error', 'E_CONFIG_INVALID', `El port «${name}» necessita «pin» o «expander» + «channel».`, { port: name }))
+      } else if ('channel' in entry) {
+        issues.push(issue('error', 'E_CONFIG_INVALID', `El port «${name}»: «channel» només té sentit amb «expander».`, { port: name }))
+      }
+    } else if (mode === 'none' && 'pin' in entry) {
+      issues.push(issue('error', 'E_CONFIG_INVALID', `El port «${name}» (${entry.kind}) no porta «pin».`, { port: name }))
     }
-    for (const [label, pin] of pinsOf(name, entry, spec.pin)) {
+    for (const [label, pin] of pinsOf(name, entry, mode !== 'none')) {
       usedPins.set(pin, [...(usedPins.get(pin) ?? []), label])
       if (board) {
         if (pin < board.gpios.min || pin > board.gpios.max) {
@@ -118,10 +135,74 @@ export function validateShowPackage(pkg: ShowPackage, catalog: OutputCatalog = d
       if (new Set(pins).size !== pins.length) {
         issues.push(issue('error', 'E_CONFIG_INVALID', `El motor «${name}» repeteix un pin entre pinR, pinL i sensorPin.`, { port: name }))
       }
+      if (typeof entry.downTime === 'number' && typeof entry.maxUpTime === 'number' && entry.maxUpTime < entry.downTime) {
+        issues.push(issue('warning', 'W_MOTOR_UP_TIME_SHORT', `El motor «${name}»: maxUpTime (${entry.maxUpTime}) és menor que downTime (${entry.downTime}); potser no arribarà a dalt.`, { port: name }))
+      }
     }
   }
   for (const [pin, labels] of usedPins) {
     if (labels.length > 1) issues.push(issue('error', 'E_PIN_DUPLICATE', `El pin ${pin} està usat per més d'un port: ${labels.join(', ')}.`))
+  }
+
+  // --- expanders: unique addresses, unique channels, GPIO 2/3 reserved ----------------------
+  const expanders = Object.entries(hardware).filter(([, e]) => e.kind === 'gpio_expander')
+  if (expanders.length > 0) {
+    for (const pin of I2C_PINS) {
+      for (const label of usedPins.get(pin) ?? []) {
+        issues.push(issue('error', 'E_PIN_RESERVED', `El pin ${pin} de «${label}» és I2C i queda reservat quan hi ha un expansor.`, { port: label }))
+      }
+    }
+    const addresses = new Map<string, string[]>()
+    for (const [name, entry] of expanders) {
+      if (typeof entry.address !== 'number') continue
+      const key = `${typeof entry.bus === 'number' ? entry.bus : 1}:${entry.address}`
+      addresses.set(key, [...(addresses.get(key) ?? []), name])
+    }
+    for (const [key, names] of addresses) {
+      if (names.length > 1) {
+        const [bus, address] = key.split(':')
+        issues.push(issue('error', 'E_I2C_ADDRESS_DUPLICATE', `L'adreça I2C 0x${Number(address).toString(16)} del bus ${bus} la fan servir més d'un expansor: ${names.join(', ')}.`))
+      }
+    }
+  }
+  const expanderNames = new Set(expanders.map(([n]) => n))
+  const channels = new Map<string, string[]>()
+  for (const [name, entry] of Object.entries(hardware)) {
+    if (entry.kind !== 'relay' || !('expander' in entry)) continue
+    const expander = String(entry.expander)
+    if (!expanderNames.has(expander)) {
+      issues.push(issue('error', 'E_EXPANDER_MISSING', `El relé «${name}» referencia l'expansor «${expander}», que no existeix com a gpio_expander.`, { port: name }))
+      continue
+    }
+    if (typeof entry.channel === 'number') {
+      const key = `${expander}:${entry.channel}`
+      channels.set(key, [...(channels.get(key) ?? []), name])
+    }
+  }
+  for (const [key, names] of channels) {
+    if (names.length > 1) {
+      const sep = key.lastIndexOf(':')
+      issues.push(issue('error', 'E_EXPANDER_CHANNEL_DUPLICATE', `El canal ${key.slice(sep + 1)} de «${key.slice(0, sep)}» l'usen més d'un relé: ${names.join(', ')}.`))
+    }
+  }
+
+  // --- moving heads: inside the universe, no overlaps ----------------------------------------
+  const dmxRanges: Array<[string, number, number]> = []
+  for (const [name, entry] of Object.entries(hardware)) {
+    if (entry.kind !== 'moving_head') continue
+    const profile = movingHeadProfile(entry.profile, catalog)
+    if (!profile || typeof entry.address !== 'number' || !Number.isInteger(entry.address)) continue
+    const last = entry.address + profile.channels - 1
+    if (last > DMX_UNIVERSE) {
+      issues.push(issue('error', 'E_DMX_ADDRESS_RANGE', `El cap «${name}» a l'adreça ${entry.address} necessita ${profile.channels} canals i surt de l'univers (fins a ${last}).`, { port: name }))
+      continue
+    }
+    for (const [other, a, b] of dmxRanges) {
+      if (entry.address <= b && a <= last) {
+        issues.push(issue('error', 'E_DMX_ADDRESS_OVERLAP', `Els caps «${other}» (${a}–${b}) i «${name}» (${entry.address}–${last}) solapen canals DMX.`, { port: name }))
+      }
+    }
+    dmxRanges.push([name, entry.address, last])
   }
 
   // --- segments ----------------------------------------------------------------------------
@@ -145,7 +226,7 @@ export function validateShowPackage(pkg: ShowPackage, catalog: OutputCatalog = d
   }
 
   // --- timeline ----------------------------------------------------------------------------
-  const declaredAssets = pkg.assets ?? { audio: [], video: [] }
+  const declaredAssets = pkg.assets ?? { audio: [] }
   const referencedAssets: Record<string, Set<string>> = {}
   const usedTargets = new Set<string>()
   const continuous = new Map<string, Array<[number, number | undefined]>>()
@@ -201,6 +282,12 @@ export function validateShowPackage(pkg: ShowPackage, catalog: OutputCatalog = d
         }
       }
     }
+    if (entry.kind === 'motor' && ev.action === 'start_up' && typeof params.time === 'number' && typeof entry.maxUpTime === 'number' && params.time > entry.maxUpTime) {
+      issues.push(issue('error', 'E_MOTOR_UP_TIME', `${where}: time=${params.time} supera el maxUpTime (${entry.maxUpTime}) del motor «${ev.target}».`, { port: ev.target }))
+    }
+    if (entry.kind === 'moving_head' && ev.action === 'set' && Object.keys(params).every(k => k === 'time')) {
+      issues.push(issue('warning', 'W_EMPTY_CUE', `${where}: el cue de «${ev.target}» no canvia res (només time).`, { port: ev.target }))
+    }
     if (ev.action === 'animate' && animation === 'fade' && !('from_color' in params)) {
       issues.push(issue('warning', 'W_FADE_FROM_BLACK', `${where}: el fos a «${ev.target}» no indica from_color: començarà des de negre.`, { port: ev.target }))
     }
@@ -227,7 +314,7 @@ export function validateShowPackage(pkg: ShowPackage, catalog: OutputCatalog = d
     if (Object.keys(spec.actions).length > 0 && !spec.infrastructure && !usedTargets.has(name)) {
       issues.push(issue('warning', 'W_PORT_UNUSED', `El port «${name}» no té cap esdeveniment.`, { port: name }))
     }
-    if (entry.kind === 'motor' || entry.kind === 'audio' || entry.kind === 'video') {
+    if (entry.kind === 'motor' || entry.kind === 'audio') {
       singletons.set(entry.kind, [...(singletons.get(entry.kind) ?? []), name])
     }
   }

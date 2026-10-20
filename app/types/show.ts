@@ -1,10 +1,10 @@
 import type { OutputKind } from '~/types/catalog'
 
-// The `stocka-show` v2 package: what the Raspberry Pi player executes. Format and rules are
+// The `stocka-show` v3 package: what the Raspberry Pi player executes. Format and rules are
 // documented in `rpi4-system/contract/README.md` and validated by `app/utils/showValidate.ts`.
 
 export const SHOW_FORMAT = 'stocka-show'
-export const SHOW_VERSION = 2
+export const SHOW_VERSION = 3
 
 export interface ShowMode {
   on: 'once' | 'loop' | 'pulse'
@@ -27,7 +27,7 @@ export interface ShowEvent {
 export interface ShowAssetRef {
   /** The asset name used by the events: `<attachmentId>-<filename>`. */
   name: string
-  kind: 'audio' | 'video'
+  kind: 'audio'
   pieceId: number
   attachmentId: number
   mimeType: string
@@ -54,7 +54,7 @@ export interface ShowPackage {
   hardware: Record<string, ShowHardwareEntry>
   timeline: ShowEvent[]
   durationMs: number
-  assets: { audio: string[], video: string[] }
+  assets: { audio: string[] }
 }
 
 export type ShowIssueLevel = 'error' | 'warning'

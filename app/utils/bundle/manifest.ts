@@ -7,7 +7,7 @@ import type { ShowPackage } from '~/types/show'
 export const BUNDLE_FORMAT = 'stocka-bundle'
 export const BUNDLE_VERSION = 1
 
-export type BundleFileKind = 'show' | 'audio' | 'video'
+export type BundleFileKind = 'show' | 'audio'
 
 export interface BundleFileEntry {
   /** `show.json` or `assets/<kind>/<asset name>`. */

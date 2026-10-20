@@ -50,7 +50,7 @@ describe('buildBundle', () => {
   it('names the file like the Python tool and writes a manifest the contract accepts', async () => {
     const pkg = samplePkg()
     const { manifest, fileName } = await buildBundle({ pkg, fetchAsset, now: NOW })
-    expect(fileName).toBe('pessebre-2026-mostra-6e46887d.belen.zip')
+    expect(fileName).toBe('pessebre-2026-mostra-48a434c0.belen.zip')
     expect(manifest.format).toBe('stocka-bundle')
     expect(manifest.version).toBe(1)
     expect(manifest.show).toEqual({ hash: pkg.meta.hash, name: 'Pessebre 2026 (mostra)', timelineId: null, board: 'rpi4b' })
@@ -135,7 +135,7 @@ describe('buildBundle', () => {
 
   it('zips only the manifest and the show when the show references no assets', async () => {
     const pkg = samplePkg()
-    pkg.assets = { audio: [], video: [] }
+    pkg.assets = { audio: [] }
     pkg.meta.assets = []
     const calls: ShowAssetRef[] = []
     const { bytes, manifest } = await buildBundle({ pkg, fetchAsset: async (ref) => { calls.push(ref); return bytesOf(ref) }, now: NOW })
@@ -145,20 +145,20 @@ describe('buildBundle', () => {
     expect(schemaErrors(manifest, schema)).toEqual([])
   })
 
-  it('covers video assets too, after the audio ones', async () => {
+  it('covers several audio assets in the order the show lists them', async () => {
     const pkg = samplePkg()
-    const intro: ShowAssetRef = { name: '3-intro.mp4', kind: 'video', pieceId: 9, attachmentId: 3, mimeType: 'video/mp4', sizeBytes: 4, durationMs: null }
-    pkg.assets = { audio: ['nature.mp3'], video: ['3-intro.mp4'] }
-    pkg.meta.assets = [intro, NATURE]
+    const night: ShowAssetRef = { name: '13-night.mp3', kind: 'audio', pieceId: 9, attachmentId: 13, mimeType: 'audio/mpeg', sizeBytes: 4, durationMs: null }
+    pkg.assets = { audio: ['nature.mp3', '13-night.mp3'] }
+    pkg.meta.assets = [night, NATURE]
     const { bytes, manifest } = await buildBundle({
       pkg,
-      fetchAsset: async ref => (ref.kind === 'video' ? new Uint8Array([1, 2, 3, 4]).buffer : bytesOf(ref)),
+      fetchAsset: async ref => (ref.name === '13-night.mp3' ? new Uint8Array([1, 2, 3, 4]).buffer : bytesOf(ref)),
       now: NOW
     })
     expect(manifest.files.map(f => [f.path, f.kind, f.size])).toEqual([
       ['show.json', 'show', showJsonBytes(pkg).length],
       ['assets/audio/nature.mp3', 'audio', AUDIO_BYTES.length],
-      ['assets/video/3-intro.mp4', 'video', 4]
+      ['assets/audio/13-night.mp3', 'audio', 4]
     ])
     expect(zipEntries(bytes).map(e => e.method)).toEqual([DEFLATE, DEFLATE, STORED, STORED])
     expect(schemaErrors(manifest, schema)).toEqual([])
@@ -173,18 +173,13 @@ describe('buildBundle', () => {
       expect(() => planBundleFiles(pkg)).toThrow(/d'àudio «nature\.mp3»/)
     })
 
-    it('a reference under another kind or another name does not count', async () => {
+    it('a reference under another name does not count', async () => {
       const pkg = samplePkg()
-      pkg.meta.assets = [{ ...NATURE, kind: 'video' }]
-      await expect(buildBundle({ pkg, fetchAsset })).rejects.toThrow(/nature\.mp3/)
       pkg.meta.assets = [{ ...NATURE, name: '12-nature.mp3' }]
       await expect(buildBundle({ pkg, fetchAsset })).rejects.toThrow(/nature\.mp3/)
-    })
-
-    it('a video without origin names the kind', () => {
-      const pkg = samplePkg()
-      pkg.assets.video = ['9-x.mp4']
-      expect(() => planBundleFiles(pkg)).toThrow(/de vídeo «9-x\.mp4»/)
+      pkg.meta.assets = [NATURE]
+      pkg.assets.audio = ['nature.mp3', '9-x.mp3']
+      expect(() => planBundleFiles(pkg)).toThrow(/d'àudio «9-x\.mp3»/)
     })
 
     it('a download shorter or longer than the attachment says', async () => {

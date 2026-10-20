@@ -18,7 +18,7 @@ const SHA = 'a'.repeat(64)
 const files: BundleFileEntry[] = [
   { path: 'show.json', sha256: SHA, size: 5770, kind: 'show' },
   { path: 'assets/audio/12-nature.mp3', sha256: 'b'.repeat(64), size: 3773952, kind: 'audio' },
-  { path: 'assets/video/3-intro.mp4', sha256: 'c'.repeat(64), size: 10, kind: 'video' }
+  { path: 'assets/audio/13-night.mp3', sha256: 'c'.repeat(64), size: 10, kind: 'audio' }
 ]
 
 describe('buildManifest', () => {
@@ -32,7 +32,7 @@ describe('buildManifest', () => {
       createdAt: '2026-10-20T18:00:00Z',
       createdBy: 'timeline-editor'
     })
-    expect(manifest.files.map(f => f.kind)).toEqual(['show', 'audio', 'video'])
+    expect(manifest.files.map(f => f.kind)).toEqual(['show', 'audio', 'audio'])
   })
 
   it('keeps the key order of the Python tool so both manifests read the same', () => {

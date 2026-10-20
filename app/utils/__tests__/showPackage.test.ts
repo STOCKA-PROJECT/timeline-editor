@@ -40,7 +40,7 @@ describe('buildShowPackage', () => {
   it('hash input is canonical: sorted keys, no whitespace, integral numbers without decimals', () => {
     const { meta, ...body } = expected
     const text = showHashInput(body)
-    expect(text.startsWith('{"assets":{"audio":["nature.mp3"],"video":[]},"board":"rpi4b"')).toBe(true)
+    expect(text.startsWith('{"assets":{"audio":["nature.mp3"]},"board":"rpi4b"')).toBe(true)
     // No whitespace outside string values ("Pulsador Belen" keeps its space).
     expect(text.replace(/"[^"]*"/g, '')).not.toMatch(/\s/)
     expect(text).toContain('"duration":10,')
@@ -63,7 +63,7 @@ describe('buildShowPackage', () => {
     const focos = doc.items.find(i => i.id === 'i-focos')!
     focos.ports = [1, 6] // a relay of RELAY_TYPE and a segment of SEGMENT_TYPE
     const ok = assembleShowPackage(input({ doc }))
-    expect(ok.body.timeline.filter(e => e.target === 'Fondo1' && e.action === 'focoOn')).toEqual([])
+    expect(ok.body.timeline.filter(e => e.target === 'Fondo1' && e.action === 'turn_on')).toEqual([])
     expect(ok.issues.filter(i => i.level === 'error')).toEqual([])
 
     focos.ports = [6]
@@ -149,7 +149,7 @@ describe('buildShowPackage', () => {
     doc.clips.push({ id: 'c99', trackId: 't-i-audio', pieceTypeActionId: 31, startMs: 60000, durationMs: 1000, paramValues: { audio_name: 'nature.mp3' } })
     doc.clips.push({ id: 'c98', trackId: 't-i-audio', pieceTypeActionId: 31, startMs: 61000, durationMs: 1000, paramValues: { audio_name: 'night.mp3' } })
     const { body } = assembleShowPackage(input({ doc }))
-    expect(body.assets).toEqual({ audio: ['nature.mp3', 'night.mp3'], video: [] })
+    expect(body.assets).toEqual({ audio: ['nature.mp3', 'night.mp3'] })
   })
 
   it('fails on a stale port and a clip after the end, warns on unused piece ports', () => {
