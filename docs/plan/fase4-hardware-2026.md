@@ -274,3 +274,23 @@ El material (adaptador USB-DMX, placa de relés y MCP23017) tiene que estar en l
 | Un `set` con `time` largo coincide con `SAFE` | `SAFE` cancela las interpolaciones y fija dimmer 0 en el mismo fotograma |
 | El aparato con `Dmx Fail = HOLD` queda encendido si la Pi cae | Ajustar `OFF` en el menú; el banco lo comprueba desenchufando el USB |
 | Posiciones calibradas que se pierden al cambiar de aparato o recolocarlo | Las posiciones viven en Stocka como acciones del tipo de pieza; recalibrar es editar dos números |
+
+## 11. Estado de implementación (20 de octubre de 2026, noche)
+
+Todo el software de esta fase está implementado y commiteado; lo que queda es el banco (§7) y las decisiones de compra (§9).
+
+| Bloque | Repo · commit | Qué hay |
+|---|---|---|
+| Contrato v3 sin vídeo | `rpi4-system` 59d7e5e | Kind `video`, `VideoController`, `assets.video` y `assets/video/` fuera; `stocka-show` y catálogo v3 |
+| Relés + expansor | `rpi4-system` 6e001de | `relay` con `pin` **o** `expander`+`channel`, `activeLow`, `pulse`; kind `gpio_expander`; `RelayController` desde `hardware`; driver `app/drivers/mcp23017.py` con arranque sin parpadeo; `tools/boot_gpio.py`; `install.sh` activa I2C |
+| Cabezal DMX | `rpi4-system` 13c9a62 | Kind `moving_head`, perfil `varytec-hero-wash-712z` en el catálogo, `app/modules/dmx/` (Enttec Pro, Open DMX, simulado; un fotograma a 40 Hz con todos los cabezales), cortes y estado seguro, `status.dmx` |
+| `maxUpTime` | `rpi4-system` 86edd2b | Obligatorio en el contrato, tope duro en `AngelController`, `E_MOTOR_UP_TIME` |
+| Modo prueba e `identify` | `rpi4-system` 5734b4d | `PlayerCore.test_set/test_release/identify`, `GET /api/test`, `POST /api/test/{set,release,identify}`, panel «Prova» con deslizadores del cabezal |
+| Backend | `backend` e82d331 | Catálogo v3, `PinMode`, `FixtureProfile`, reglas de puertos (expansor, I2C, DMX), `ShowValidator` igual que la Pi, show v3, migración V25, Bruno, test del ejemplo completo con el hash de la Pi |
+| Editor | `timeline-editor` ccbefba | Catálogo y esquema v3, show v3 solo audio, `showValidate` con las reglas nuevas, fixtures y zips de interop regenerados |
+| Frontend | `frontend` (commit de esta fase) | Formulario de puerto con «Connexió: GPIO / Expansor», campos por kind (`ref` genérico, enums), resumen por fila, i18n ca/es/en, mensajes de los códigos nuevos |
+
+Suites: `rpi4-system` 537 tests · `backend` 1975 · `timeline-editor` 238. Hash dorado de `belen-2026`: `sha256:48a434c0…`; ejemplo completo `pessebre-2026-complet.show.json` (expansor, dos cabezales, ángel) validado con el mismo hash en la Pi, el backend y el editor.
+
+**Pendiente (Joan, con el material delante):** decisiones 1, 2 y 9 de §9 (adaptador USB→DMX, placa de relés y recuento, semana del banco); el banco de §7 entero; `git push` de los cuatro repos y en la Pi `git checkout -- . && git pull --ff-only && venv/bin/pip install -r requirements.txt` (la Pi estaba apagada o sin hotspot el 20-10 por la noche y no se desplegó); comprobar la configuración de audio por jack en la Pi (punto 1 de §7); desplegar el backend (Flyway V25) y revisar en Stocka los tipos de pieza con acciones `focoOn`/`focoOff`, que ya no existen en el catálogo.
+
