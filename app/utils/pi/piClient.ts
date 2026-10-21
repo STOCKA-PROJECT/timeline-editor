@@ -9,6 +9,12 @@ export const DEFAULT_PI_URLS = ['http://belen.local:8080', 'http://10.42.0.1:808
 /** Size of each piece of a resumable upload (the Pi accepts any size up to its limit). */
 export const UPLOAD_CHUNK_BYTES = 1024 * 1024
 const UPLOAD_RETRIES = 4
+/** Ordinary requests: an address that does not answer is given up quickly. */
+export const REQUEST_TIMEOUT_MS = 10_000
+/** Finding the Pi (`info`): several candidate addresses are tried one after another. */
+export const PROBE_TIMEOUT_MS = 4_000
+/** A piece of an upload, or the import (the Pi verifies hashes and the show before answering). */
+export const SLOW_TIMEOUT_MS = 120_000
 const RETRY_DELAYS_MS = [500, 1000, 2000, 4000]
 
 export type PiState = 'BOOT' | 'SAFE' | 'IDLE' | 'PLAYING' | 'TEST' | 'ERROR'
@@ -113,6 +119,16 @@ export function normalizePiUrl(input: string): string {
   return `${url.protocol}//${url.hostname}${port ? `:${port}` : ''}`
 }
 
+/**
+ * Address space hint for Chrome's Local Network Access: `local` for the Pi on the LAN; nothing for
+ * loopback (an SSH tunnel on `localhost`), where Chrome would refuse a `local` hint as a mismatch.
+ */
+export function targetAddressSpaceOf(baseUrl: string): 'local' | undefined {
+  const host = new URL(baseUrl).hostname.replace(/^\[|\]$/g, '')
+  if (host === 'localhost' || host.endsWith('.localhost') || host === '::1' || /^127\./.test(host)) return undefined
+  return 'local'
+}
+
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 type EventSourceLike = { onmessage: ((e: { data: string }) => void) | null, onerror: ((e: unknown) => void) | null, onopen?: ((e: unknown) => void) | null, close(): void }
 
@@ -142,7 +158,7 @@ export class PiClient {
     this.sleep = options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)))
   }
 
-  private async request<T>(method: string, path: string, init: { body?: BodyInit, json?: unknown, pin?: boolean, headers?: Record<string, string> } = {}): Promise<T> {
+  private async request<T>(method: string, path: string, init: { body?: BodyInit, json?: unknown, pin?: boolean, headers?: Record<string, string>, timeoutMs?: number } = {}): Promise<T> {
     const headers: Record<string, string> = { Accept: 'application/json', ...(init.headers ?? {}) }
     let body = init.body
     if (init.json !== undefined) {
@@ -157,8 +173,10 @@ export class PiClient {
     let response: Response
     try {
       // `targetAddressSpace` tells Chrome the request goes to the local network (Local Network Access);
-      // other browsers ignore the unknown option.
-      response = await this.fetchFn(`${this.baseUrl}${path}`, { method, headers, body, targetAddressSpace: 'local' } as RequestInit)
+      // other browsers ignore the unknown option. Loopback addresses must not carry it.
+      const signal = AbortSignal.timeout(init.timeoutMs ?? REQUEST_TIMEOUT_MS)
+      const space = targetAddressSpaceOf(this.baseUrl)
+      response = await this.fetchFn(`${this.baseUrl}${path}`, { method, headers, body, signal, ...(space ? { targetAddressSpace: space } : {}) } as RequestInit)
     } catch (error) {
       throw new PiApiError(0, 'unreachable',
         `No s'ha pogut contactar amb la Raspberry a ${this.baseUrl}: comprova que el portàtil és a la mateixa xarxa i que Chrome té permís d'accés a la xarxa local.`,
@@ -180,7 +198,7 @@ export class PiClient {
     return data as T
   }
 
-  info(): Promise<PiInfo> { return this.request('GET', '/api/info') }
+  info(): Promise<PiInfo> { return this.request('GET', '/api/info', { timeoutMs: PROBE_TIMEOUT_MS }) }
   status(): Promise<PiStatus> { return this.request('GET', '/api/status') }
   bundles(): Promise<PiBundles> { return this.request('GET', '/api/bundles') }
   async assets(): Promise<Record<string, string[]>> {
@@ -245,7 +263,8 @@ export class PiClient {
         const res = await this.request<{ received: number }>('PUT', `/api/uploads/${id}`, {
           body: bytes.slice(offset, end + 1),
           headers: { 'Content-Range': `bytes ${offset}-${end}/${total}`, 'Content-Type': 'application/octet-stream' },
-          pin: true
+          pin: true,
+          timeoutMs: SLOW_TIMEOUT_MS
         })
         offset = res.received
         failures = 0
@@ -265,7 +284,7 @@ export class PiClient {
       }
       options.onProgress?.({ sent: offset, total })
     }
-    return await this.request<PiImportReport>('POST', `/api/uploads/${id}/finish${options.activate ? '?activate=1' : ''}`, { json: {}, pin: true })
+    return await this.request<PiImportReport>('POST', `/api/uploads/${id}/finish${options.activate ? '?activate=1' : ''}`, { json: {}, pin: true, timeoutMs: SLOW_TIMEOUT_MS })
   }
 
   /** Live status of the Pi (Server-Sent Events). Returns a function that closes the stream. */

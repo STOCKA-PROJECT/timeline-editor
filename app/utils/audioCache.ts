@@ -20,6 +20,13 @@ export function getAudioContext(): AudioContext {
   return context
 }
 
+/** Where the bytes come from; the editor plugs in its offline cache (see `plugins/offline.client.ts`). */
+let loadBytes: (url: string) => Promise<ArrayBuffer> = url => $fetch<ArrayBuffer>(url, { responseType: 'arrayBuffer' })
+
+export function setAudioBytesLoader(loader: (url: string) => Promise<ArrayBuffer>): void {
+  loadBytes = loader
+}
+
 const pending = new Map<string, Promise<DecodedAudio>>()
 const ready = new Map<string, DecodedAudio>()
 
@@ -30,7 +37,7 @@ export function loadDecodedAudio(url: string): Promise<DecodedAudio> {
   let p = pending.get(url)
   if (!p) {
     p = (async () => {
-      const bytes = await $fetch<ArrayBuffer>(url, { responseType: 'arrayBuffer' })
+      const bytes = await loadBytes(url)
       const buffer = await getAudioContext().decodeAudioData(bytes.slice(0))
       const channels: Float32Array[] = []
       for (let c = 0; c < buffer.numberOfChannels; c++) channels.push(buffer.getChannelData(c))

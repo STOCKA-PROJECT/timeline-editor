@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { OfflineUnavailableError } from '~/utils/offline/cachedRequest'
+
 definePageMeta({ layout: 'editor' })
 
 const route = useRoute()
@@ -33,8 +35,13 @@ onMounted(async () => {
     await Promise.all(
       scene.items.map(i => catalog.ensureActionsForPiece(catalog.pieceById(i.pieceId)))
     )
-  } catch {
-    loadError.value = 'No se ha podido cargar el editor. Comprueba tu acceso e inténtalo de nuevo.'
+    // With a connection, keep on the laptop everything needed to work and to build the bundle
+    // without one (piece details, audio files). In the background: the editor is usable already.
+    if (!scene.openedOffline) void catalog.prepareOffline(scene.items.map(i => i.pieceId))
+  } catch (e) {
+    loadError.value = e instanceof OfflineUnavailableError
+      ? 'Aquesta timeline no és al portàtil: obre-la una vegada amb connexió per poder-la editar després sense.'
+      : 'No se ha podido cargar el editor. Comprueba tu acceso e inténtalo de nuevo.'
   }
 })
 

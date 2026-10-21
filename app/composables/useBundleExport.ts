@@ -1,8 +1,7 @@
-import type { ShowAssetRef, ShowIssue } from '~/types/show'
-import { BundleBuildError, buildBundle, DEFAULT_CREATED_BY, planBundleFiles, type BundleProgress } from '~/utils/bundle/buildBundle'
+import type { ShowIssue } from '~/types/show'
+import { buildBundle, DEFAULT_CREATED_BY, planBundleFiles, type BundleProgress } from '~/utils/bundle/buildBundle'
 import { bundleFileName } from '~/utils/bundle/fileName'
 import type { BundleFileKind } from '~/utils/bundle/manifest'
-import { buildShowPackage } from '~/utils/showPackage'
 
 export type BundleExportPhase = 'idle' | 'building' | 'downloading' | 'zipping' | 'done' | 'error'
 
@@ -15,18 +14,13 @@ export interface BundleExportFile {
   done: boolean
 }
 
-type FetchFailure = { response?: { status?: number } }
-
 /**
  * «Exportar paquet»: builds the show package (errors block, exactly like «Exportar show»), downloads
  * every asset it references through the BFF, zips it all as a `stocka-bundle` and hands the
  * `.belen.zip` to the browser. The state is reactive so a dialog can follow it file by file.
  */
 export function useBundleExport() {
-  const scene = useSceneStore()
-  const catalog = useCatalogStore()
-  const api = useApi()
-  const { ensureAudioLoaded } = useAudioClips()
+  const { buildPackage, fetchAsset } = useShowPackageBuilder()
 
   const phase = ref<BundleExportPhase>('idle')
   const files = ref<BundleExportFile[]>([])
@@ -39,27 +33,6 @@ export function useBundleExport() {
   const busy = computed(() => phase.value === 'building' || phase.value === 'downloading' || phase.value === 'zipping')
   const totalSize = computed(() => files.value.reduce((sum, f) => sum + f.size, 0))
   const loadedSize = computed(() => files.value.reduce((sum, f) => sum + Math.min(f.loaded, f.size), 0))
-
-  /** Actions and details of every piece on the board: the package needs them to resolve the clips. */
-  async function ensureCatalogLoaded(): Promise<void> {
-    const pieceIds = [...new Set(scene.items.map(i => i.pieceId))]
-    await Promise.all(pieceIds.map(id => catalog.ensureActionsForPiece(catalog.pieceById(id))))
-    await Promise.all(pieceIds.map(id => catalog.ensurePieceDetail(id)))
-  }
-
-  /** Raw bytes of an attachment through the BFF (same origin, token cookie, 401 refresh). */
-  async function fetchAsset(ref: ShowAssetRef): Promise<ArrayBuffer> {
-    const url = catalog.attachmentContentUrl(ref.pieceId, ref.attachmentId)
-    if (!url) throw new BundleBuildError(`No es pot localitzar el fitxer «${ref.name}» sense organització oberta.`)
-    try {
-      // `useApi` already prefixes `/api`.
-      return await api<ArrayBuffer>(url.replace(/^\/api/, ''), { responseType: 'arrayBuffer' })
-    } catch (e) {
-      const status = (e as FetchFailure).response?.status
-      throw new BundleBuildError(
-        `No s'ha pogut descarregar «${ref.name}»${status ? ` (HTTP ${status})` : ''}: comprova la connexió i torna-ho a provar.`)
-    }
-  }
 
   function onProgress(progress: BundleProgress) {
     const file = files.value[progress.index]
@@ -85,17 +58,7 @@ export function useBundleExport() {
     reset()
     phase.value = 'building'
     try {
-      await ensureCatalogLoaded()
-      // Audio files of the audio pieces: the package needs to know where every asset comes from.
-      await ensureAudioLoaded()
-      const result = await buildShowPackage({
-        doc: scene.buildDocument(),
-        catalog,
-        orgPorts: catalog.ports,
-        audioByPiece: catalog.audioByPiece,
-        timelineName: scene.timelineName,
-        timelineId: scene.timelineId
-      })
+      const result = await buildPackage()
       errors.value = result.errors
       warnings.value = result.warnings
       if (!result.pkg) {

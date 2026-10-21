@@ -26,11 +26,9 @@ export const useCatalogStore = defineStore('catalog', () => {
     orgSlug.value = slug
     loading.value = true
     try {
-      const api = useApi()
+      const cached = useCachedApi()
       const [page] = await Promise.all([
-        api<Page<PieceListItemDto>>(`/organizations/${slug}/pieces`, {
-          query: { size: 200, sort: 'name,asc' }
-        }),
+        cached.get<Page<PieceListItemDto>>(`/organizations/${slug}/pieces`, { size: 200, sort: 'name,asc' }),
         loadPorts(slug)
       ])
       pieces.value = page.content ?? []
@@ -42,8 +40,7 @@ export const useCatalogStore = defineStore('catalog', () => {
   /** Loads the org's ports; tolerates the gated-feature 403/404 (orgs without it just get an empty list). */
   async function loadPorts(slug: string): Promise<void> {
     try {
-      const api = useApi()
-      ports.value = await api<PortResponseDto[]>(`/organizations/${slug}/ports`)
+      ports.value = await useCachedApi().get<PortResponseDto[]>(`/organizations/${slug}/ports`)
       portsLoaded.value = true
     } catch {
       ports.value = []
@@ -92,10 +89,9 @@ export const useCatalogStore = defineStore('catalog', () => {
     if (audioByPiece.value[pieceId]) return audioByPiece.value[pieceId]!
     if (!orgSlug.value) return []
     try {
-      const api = useApi()
-      const list = await api<PieceAttachmentResponseDto[]>(
+      const list = await useCachedApi().get<PieceAttachmentResponseDto[]>(
         `/organizations/${orgSlug.value}/pieces/${pieceId}/attachments`,
-        { query: { kind: 'AUDIO' } }
+        { kind: 'AUDIO' }
       )
       audioByPiece.value = { ...audioByPiece.value, [pieceId]: list }
       return list
@@ -133,8 +129,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     if (actionsByType.value[typeId]) return actionsByType.value[typeId]!
     if (!orgSlug.value) return []
     try {
-      const api = useApi()
-      const actions = await api<PieceTypeActionResponseDto[]>(
+      const actions = await useCachedApi().get<PieceTypeActionResponseDto[]>(
         `/organizations/${orgSlug.value}/piece-types/${typeId}/actions`
       )
       actionsByType.value = { ...actionsByType.value, [typeId]: actions }
@@ -180,13 +175,30 @@ export const useCatalogStore = defineStore('catalog', () => {
     if (pieceDetails.value[id]) return pieceDetails.value[id]
     if (!orgSlug.value) return undefined
     try {
-      const api = useApi()
-      const detail = await api<PieceResponseDto>(`/organizations/${orgSlug.value}/pieces/${id}`)
+      const detail = await useCachedApi().get<PieceResponseDto>(`/organizations/${orgSlug.value}/pieces/${id}`)
       pieceDetails.value = { ...pieceDetails.value, [id]: detail }
       return detail
     } catch {
       return undefined
     }
+  }
+
+  /**
+   * Downloads now everything the board needs to work and to build the bundle without a connection:
+   * actions and details of every placed piece, and the audio files of the audio pieces. Failures are
+   * ignored (whatever was cached before stays).
+   */
+  async function prepareOffline(pieceIds: number[]): Promise<void> {
+    const ids = [...new Set(pieceIds)]
+    await Promise.all(ids.map(id => ensureActionsForPiece(pieceById(id))))
+    await Promise.all(ids.map(id => ensurePieceDetail(id)))
+    const audioIds = ids.filter(id => isAudioPiece(pieceById(id)))
+    const lists = await Promise.all(audioIds.map(id => ensureAudioForPiece(id)))
+    const cached = useCachedApi()
+    await Promise.all(audioIds.flatMap((pieceId, i) => (lists[i] ?? []).map((a) => {
+      const url = attachmentContentUrl(pieceId, a.id)
+      return url ? cached.bytes(url).catch(() => undefined) : undefined
+    })))
   }
 
   function reset() {
@@ -226,6 +238,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     audioForPiece,
     audioLoadedForPiece,
     attachmentContentUrl,
+    prepareOffline,
     reset
   }
 })

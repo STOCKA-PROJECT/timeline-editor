@@ -1,0 +1,17 @@
+{
+  "name": "Stocka · Editor de timelines",
+  "short_name": "Timelines",
+  "description": "Editor de timelines del pessebre: funciona sense connexió i envia el show a la Raspberry per la xarxa local.",
+  "lang": "ca",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f7",
+  "theme_color": "#0b5a66",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -13,13 +13,31 @@ import {
   type SceneTrack
 } from '~/types/editor'
 import { nextId } from '~/utils/ids'
+import { cachedRequest } from '~/utils/offline/cachedRequest'
+import type { KvStore } from '~/utils/offline/kvStore'
+import {
+  openScene,
+  rebaseEdits,
+  resolveSceneConflict,
+  saveLocal,
+  saveScene,
+  VersionConflictError,
+  type SaveOutcome,
+  type SceneContext
+} from '~/utils/offline/sceneSync'
+import type { MergeResult, MergeSide } from '~/utils/sceneMerge'
 import { orderItems } from '~/utils/stripLayout'
+
+/** Delay before an edit is also written to the laptop's copy (the server save waits longer). */
+const LOCAL_WRITE_DELAY_MS = 300
 
 export const DEFAULT_CLIP_MS = 2000
 
 /**
- * Holds the live, editable scene document and persists it to the backend. Mutations bump
- * {@link dirtyRevision}; the autosave composable watches it and debounces a {@link save}.
+ * Holds the live, editable scene document and persists it: every edit goes to the laptop's copy
+ * (IndexedDB) right away and to the backend through the debounced autosave. Without a connection the
+ * edits wait locally ({@link offline}) and go up when it comes back; if another session saved
+ * meanwhile the two editions are merged, and clashes wait in {@link pendingMerge} for the user.
  */
 export const useSceneStore = defineStore('scene', () => {
   const orgSlug = ref<string | null>(null)
@@ -43,6 +61,14 @@ export const useSceneStore = defineStore('scene', () => {
   const lastSavedAt = ref<number | null>(null)
   const error = ref<string | null>(null)
   const conflict = ref(false)
+  /** The last attempt to reach the server failed: edits are kept on the laptop. */
+  const offline = ref(false)
+  /** The open document came from the laptop's copy (the server could not be reached on load). */
+  const openedOffline = ref(false)
+  /** Clashing edits that need the user's choice before saving. */
+  const pendingMerge = ref<{ merge: MergeResult, remoteVersion: number | null } | null>(null)
+  /** One-line information for the toolbar (an automatic merge happened…). */
+  const notice = ref<string | null>(null)
 
   // ----- undo/redo history -----
   /** Maximum number of undo steps. Kept snapshots = current state + up to this many previous ones. */
@@ -98,6 +124,7 @@ export const useSceneStore = defineStore('scene', () => {
     dirty.value = true
     dirtyRevision.value++
     scheduleCapture()
+    persistLocalSoon()
   }
 
   // ----- history (undo/redo) -----
@@ -147,6 +174,7 @@ export const useSceneStore = defineStore('scene', () => {
     // Mark dirty + bump the revision so autosave persists the restored state (without re-capturing).
     dirty.value = true
     dirtyRevision.value++
+    persistLocalSoon()
   }
 
   function undo() {
@@ -162,65 +190,192 @@ export const useSceneStore = defineStore('scene', () => {
   }
 
   // ----- load / save -----
+  function syncContext(kv: KvStore): SceneContext {
+    const slug = orgSlug.value!
+    const tid = timelineId.value!
+    const path = `/organizations/${slug}/timelines/${tid}/scene`
+    return {
+      kv,
+      orgSlug: slug,
+      timelineId: tid,
+      timelineName: timelineName.value,
+      server: {
+        async fetch() {
+          const res = await useApi()<TimelineSceneResponseDto | undefined>(path)
+          return res && res.document ? { document: res.document as SceneDocument, version: res.version } : { document: null, version: res?.version ?? null }
+        },
+        async put(document, v) {
+          try {
+            const res = await useApi()<TimelineSceneResponseDto>(path, {
+              method: 'PUT',
+              keepalive: keepaliveNext,
+              body: { schemaVersion: SCENE_SCHEMA_VERSION, document, version: v }
+            })
+            return res.version
+          } catch (e) {
+            const code = (e as { response?: { _data?: { code?: string } } }).response?._data?.code
+            if (code === 'timeline_scenes.version_conflict') throw new VersionConflictError()
+            throw e
+          }
+        }
+      }
+    }
+  }
+
+  async function withContext(): Promise<SceneContext> {
+    return syncContext(await useOfflineDb())
+  }
+
+  let keepaliveNext = false
+  let localTimer: ReturnType<typeof setTimeout> | null = null
+
+  /** Writes the current document to the laptop's copy soon (coalesces bursts of edits). */
+  function persistLocalSoon() {
+    if (!orgSlug.value || timelineId.value == null || loading.value) return
+    if (localTimer) clearTimeout(localTimer)
+    localTimer = setTimeout(() => {
+      localTimer = null
+      void persistLocalNow()
+    }, LOCAL_WRITE_DELAY_MS)
+  }
+
+  async function persistLocalNow() {
+    if (!orgSlug.value || timelineId.value == null || !dirty.value) return
+    try {
+      await saveLocal(await withContext(), buildDocument(), version.value)
+    } catch (e) {
+      console.warn('No s’ha pogut desar la còpia local', e)
+    }
+  }
+
   async function load(slug: string, tid: number) {
     orgSlug.value = slug
     timelineId.value = tid
     loading.value = true
     error.value = null
     conflict.value = false
+    pendingMerge.value = null
+    notice.value = null
     try {
-      const api = useApi()
-      // Timeline metadata (its name titles the editor) + the scene document.
-      const [timeline, res] = await Promise.all([
-        api<TimelineResponseDto>(`/organizations/${slug}/timelines/${tid}`).catch(() => null),
-        api<TimelineSceneResponseDto | undefined>(`/organizations/${slug}/timelines/${tid}/scene`)
-      ])
+      const connectivity = useConnectivityStore()
+      const kv = await useOfflineDb()
+      // Timeline metadata (its name titles the editor), from the local copy when offline.
+      const timeline = await cachedRequest(kv, `/organizations/${slug}/timelines/${tid}`,
+        () => useApi()<TimelineResponseDto>(`/organizations/${slug}/timelines/${tid}`)).then(r => r.data).catch(() => null)
       timelineName.value = timeline?.name ?? ''
-      if (res && res.document) {
-        applyDocument(res.document as SceneDocument)
-        version.value = res.version
-      } else {
-        applyDocument(emptyDocument())
-        version.value = null
+      const opened = await openScene(await withContext())
+      applyDocument(opened.document)
+      version.value = opened.version
+      openedOffline.value = opened.offline
+      offline.value = opened.offline
+      if (opened.offline) connectivity.reportUnreachable()
+      else connectivity.reportNetwork()
+      dirty.value = opened.pending
+      if (opened.merge) {
+        pendingMerge.value = { merge: opened.merge, remoteVersion: opened.remoteVersion ?? null }
+        conflict.value = true
       }
-      dirty.value = false
+      if (opened.merged) notice.value = 'S’han fusionat els canvis fets sense connexió amb els d’una altra sessió.'
       resetHistory()
     } finally {
       loading.value = false
     }
+    // Edits made offline go up as soon as the editor opens with a connection.
+    if (dirty.value && !offline.value && !conflict.value) save().catch(() => { /* surfaced via error */ })
   }
 
   async function save(opts?: { keepalive?: boolean }) {
-    if (!orgSlug.value || timelineId.value == null) return
+    if (!orgSlug.value || timelineId.value == null || conflict.value) return
+    if (saving.value) return
+    saving.value = true
+    error.value = null
+    keepaliveNext = !!opts?.keepalive
+    const sent = buildDocument()
+    const revision = dirtyRevision.value
+    const connectivity = useConnectivityStore()
+    try {
+      const outcome = await saveScene(await withContext(), sent, version.value)
+      applyOutcome(outcome, sent, revision)
+      if (outcome.status === 'offline') connectivity.reportUnreachable()
+      else connectivity.reportNetwork()
+    } catch (e) {
+      error.value = 'No s’ha pogut desar la escena.'
+      throw e
+    } finally {
+      saving.value = false
+      keepaliveNext = false
+    }
+  }
+
+  /** Brings the editor in line with what a save achieved (edits made during it are kept). */
+  function applyOutcome(outcome: SaveOutcome, sent: SceneDocument, revision: number) {
+    const editedMeanwhile = dirtyRevision.value !== revision
+    switch (outcome.status) {
+      case 'saved':
+        version.value = outcome.version
+        dirty.value = editedMeanwhile
+        offline.value = false
+        lastSavedAt.value = Date.now()
+        break
+      case 'merged': {
+        version.value = outcome.version
+        offline.value = false
+        lastSavedAt.value = Date.now()
+        const doc = editedMeanwhile ? rebaseEdits(sent, buildDocument(), outcome.document) : outcome.document
+        restoring = true
+        applyDocument(doc)
+        restoring = false
+        captureHistory()
+        dirty.value = editedMeanwhile
+        notice.value = 'S’han fusionat els teus canvis amb els d’una altra sessió.'
+        break
+      }
+      case 'offline':
+        offline.value = true
+        dirty.value = true
+        break
+      case 'conflict':
+        pendingMerge.value = { merge: outcome.merge, remoteVersion: outcome.remoteVersion }
+        conflict.value = true
+        break
+    }
+  }
+
+  /** Saves the user's choices for a clashing merge (works offline too: it then waits locally). */
+  async function resolveMerge(choices: Record<string, MergeSide>) {
+    const pending = pendingMerge.value
+    if (!pending) return
     saving.value = true
     error.value = null
     try {
-      const api = useApi()
-      const res = await api<TimelineSceneResponseDto>(
-        `/organizations/${orgSlug.value}/timelines/${timelineId.value}/scene`,
-        {
-          method: 'PUT',
-          // `keepalive` lets the request outlive a page unload/reload, so the last edit is not lost.
-          keepalive: opts?.keepalive,
-          body: { schemaVersion: SCENE_SCHEMA_VERSION, document: buildDocument(), version: version.value }
-        }
-      )
-      version.value = res.version
-      dirty.value = false
-      lastSavedAt.value = Date.now()
+      const { outcome, document } = await resolveSceneConflict(await withContext(), pending.merge, pending.remoteVersion, choices)
+      restoring = true
+      applyDocument(document)
+      restoring = false
+      captureHistory()
+      pendingMerge.value = null
       conflict.value = false
-    } catch (e) {
-      const code = (e as { response?: { _data?: { code?: string } } }).response?._data?.code
-      if (code === 'timeline_scenes.version_conflict') {
-        conflict.value = true
-        error.value = 'La escena se modificó en otra sesión. Recarga para continuar.'
+      if (outcome.status === 'merged' || outcome.status === 'saved') {
+        version.value = outcome.version
+        dirty.value = false
+        offline.value = false
+        lastSavedAt.value = Date.now()
       } else {
-        error.value = 'No se ha podido guardar la escena.'
+        // Offline: the resolution is kept on the laptop, on top of the server's edition.
+        version.value = pending.remoteVersion
+        dirty.value = true
+        offline.value = true
       }
+    } catch (e) {
+      error.value = 'No s’ha pogut desar la resolució del conflicte.'
       throw e
     } finally {
       saving.value = false
     }
+  }
+
+  function dismissNotice() {
+    notice.value = null
   }
 
   // ----- board -----
@@ -391,6 +546,10 @@ export const useSceneStore = defineStore('scene', () => {
     dirty.value = false
     error.value = null
     conflict.value = false
+    offline.value = false
+    openedOffline.value = false
+    pendingMerge.value = null
+    notice.value = null
     resetHistory()
   }
 
@@ -414,6 +573,13 @@ export const useSceneStore = defineStore('scene', () => {
     lastSavedAt,
     error,
     conflict,
+    offline,
+    openedOffline,
+    pendingMerge,
+    notice,
+    resolveMerge,
+    dismissNotice,
+    persistLocalNow,
     canUndo,
     canRedo,
     undo,

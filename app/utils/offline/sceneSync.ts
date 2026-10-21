@@ -108,8 +108,16 @@ function newRecord(ctx: SceneContext, patch: Partial<SceneRecord> & Pick<SceneRe
   }
 }
 
+/**
+ * A plain JSON copy: the editor hands over reactive (Proxy) documents, which IndexedDB's structured
+ * clone refuses (`DataCloneError`). Records are JSON by nature.
+ */
+function plain<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
+}
+
 async function write(ctx: SceneContext, record: SceneRecord): Promise<void> {
-  await ctx.kv.put('scenes', record.key, record)
+  await ctx.kv.put('scenes', record.key, plain(record))
 }
 
 /**

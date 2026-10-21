@@ -254,6 +254,16 @@ describe('resolveSceneConflict', () => {
 })
 
 describe('saveLocal and listRecords', () => {
+  it('stores reactive (Proxy) documents, which structured clone refuses', async () => {
+    const { ctx, kv } = setup()
+    const reactiveLike = <T extends object>(o: T): T => new Proxy(o, {})
+    const doc = reactiveLike({ ...withDuration(emptyDocument(), 3000), items: reactiveLike([]) })
+    expect(() => structuredClone(doc)).toThrow()
+    await saveLocal(ctx, doc, null)
+    expect((await readRecord(kv, 'org', 7))?.document.durationMs).toBe(3000)
+  })
+
+
   it('creates a pending record for a timeline never opened online', async () => {
     const { ctx, kv } = setup()
     await saveLocal(ctx, withDuration(emptyDocument(), 3000), null)

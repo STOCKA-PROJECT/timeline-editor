@@ -16,12 +16,23 @@ function saveNow() {
 }
 
 const saveLabel = computed(() => {
-  if (scene.saving) return 'Desant…'
+  if (scene.saving) return scene.offline ? 'Sincronitzant…' : 'Desant…'
+  if (scene.pendingMerge) return 'Cal triar canvis'
   if (scene.conflict) return 'Conflicte'
+  if (scene.offline) return scene.dirty ? 'Desat al portàtil · es pujarà en tornar la connexió' : 'Sense connexió'
   if (scene.dirty) return 'Sense desar'
   if (scene.lastSavedAt) return 'Desat'
   return ''
 })
+const saveTone = computed(() => {
+  if (scene.conflict) return 'text-danger'
+  if (scene.offline) return 'text-warn'
+  return 'text-ink-muted'
+})
+
+// ----- Raspberry (local network) -----
+const pi = usePiStore()
+const piOpen = ref(false)
 
 // ----- export / import -----
 // "Exportar show" builds the stocka-show package the Raspberry Pi executes (ports → hardware,
@@ -212,9 +223,26 @@ const statusTone = computed(() => {
         :title="statusText"
         @click="issuesOpen = !issuesOpen">{{ statusText }}</button>
       <div class="h-5 w-px bg-line-strong" />
-      <span class="text-[12px] leading-4" :class="scene.conflict ? 'text-danger' : 'text-ink-muted'">{{ saveLabel }}</span>
+      <span v-if="scene.offline" class="badge badge-warn" title="No es pot arribar a Stocka: els canvis es desen al portàtil">Sense connexió</span>
+      <span class="max-w-72 truncate text-[12px] leading-4" :class="saveTone" :title="saveLabel">{{ saveLabel }}</span>
       <button class="btn btn-sm btn-primary" :disabled="scene.saving || !scene.dirty" @click="saveNow()">Desar</button>
+      <div class="h-5 w-px bg-line-strong" />
+      <button
+        type="button" class="btn btn-sm inline-flex items-center gap-1.5"
+        title="Envia el show a la Raspberry del pessebre per la xarxa local, mira’n el registre i controla’l"
+        @click="piOpen = true">
+        <span class="h-2 w-2 rounded-full" :class="pi.connected ? 'bg-ok' : 'bg-line-strong'" aria-hidden="true" />
+        Raspberry
+      </button>
       <a :href="exitUrl" class="btn btn-sm">Sortir</a>
+    </div>
+
+    <div
+      v-if="scene.notice"
+      class="absolute left-1/2 top-full z-40 mt-2 flex -translate-x-1/2 items-center gap-3 rounded-[6px] border border-line bg-bg-card px-3 py-2 text-[13px] leading-[18px] text-ink shadow-raised"
+      role="status">
+      {{ scene.notice }}
+      <button type="button" class="btn btn-sm btn-quiet" @click="scene.dismissNotice()">D’acord</button>
     </div>
 
     <EditorExportIssues
@@ -224,5 +252,7 @@ const statusTone = computed(() => {
       :file-name="issues.fileName"
       @close="issuesOpen = false" />
     <EditorBundleExportDialog v-if="bundleOpen" @close="bundleOpen = false" />
+    <EditorPiPanel v-if="piOpen" @close="piOpen = false" />
+    <EditorSyncConflictDialog v-if="scene.pendingMerge" />
   </header>
 </template>

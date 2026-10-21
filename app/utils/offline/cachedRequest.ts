@@ -40,8 +40,8 @@ export interface CachedRequestOptions {
 
 /** Thrown when the network is down and nothing was cached for that key. */
 export class OfflineUnavailableError extends Error {
-  constructor(readonly key: string, readonly cause?: unknown) {
-    super(`Sense connexió i sense còpia local de ${key}.`)
+  constructor(readonly key: string, cause?: unknown) {
+    super(`Sense connexió i sense còpia local de ${key}.`, { cause })
     this.name = 'OfflineUnavailableError'
   }
 }

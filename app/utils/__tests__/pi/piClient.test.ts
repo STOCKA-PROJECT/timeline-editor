@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizePiUrl, PiApiError, PiClient } from '~/utils/pi/piClient'
+import { normalizePiUrl, PiApiError, PiClient, targetAddressSpaceOf } from '~/utils/pi/piClient'
 
 interface Call { url: string, method: string, headers: Record<string, string>, body?: unknown }
 
@@ -31,6 +31,28 @@ describe('normalizePiUrl', () => {
 
   it.each(['', '   ', 'ftp://x', 'http://'])('rejects %j', (input) => {
     expect(() => normalizePiUrl(input)).toThrow(PiApiError)
+  })
+})
+
+describe('targetAddressSpaceOf', () => {
+  it.each([
+    ['http://belen.local:8080', 'local'],
+    ['http://10.42.0.1:8080', 'local'],
+    ['http://192.168.137.107:8080', 'local'],
+    ['http://localhost:18080', undefined],
+    ['http://127.0.0.1:8080', undefined],
+    ['http://[::1]:8080', undefined],
+    ['http://pi.localhost:8080', undefined]
+  ])('%s → %s', (url, expected) => {
+    expect(targetAddressSpaceOf(url)).toBe(expected)
+  })
+
+  it('the hint travels only to LAN addresses', async () => {
+    const seen: unknown[] = []
+    const fetch = async (_u: string, init?: RequestInit) => { seen.push((init as { targetAddressSpace?: string }).targetAddressSpace); return json(200, {}) }
+    await new PiClient('belen.local', { fetch }).status()
+    await new PiClient('localhost:18080', { fetch }).status()
+    expect(seen).toEqual(['local', undefined])
   })
 })
 
@@ -77,6 +99,24 @@ describe('PiClient requests', () => {
     expect(err).toMatchObject({ status: 0, code: 'unreachable' })
     expect(err.unreachable).toBe(true)
     expect(err.message).toContain('http://belen.local:8080')
+  })
+
+  it('a Pi that never answers is given up after the timeout (unreachable)', async () => {
+    const fetch = (_url: string, init: RequestInit = {}) => new Promise<Response>((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(init.signal!.reason))
+    })
+    const started = Date.now()
+    const err = await new PiClient('belen.local', { fetch }).info().catch(e => e)
+    expect(err).toMatchObject({ code: 'unreachable' })
+    expect(Date.now() - started).toBeLessThan(6000)
+  }, 10_000)
+
+  it('every request carries an abort signal', async () => {
+    const { fetch, calls } = scripted([() => json(200, {})])
+    let signal: AbortSignal | undefined
+    await new PiClient('x', { fetch: (u, init) => { signal = init?.signal ?? undefined; return fetch(u, init) } }).status()
+    expect(signal).toBeInstanceOf(AbortSignal)
+    expect(calls).toHaveLength(1)
   })
 
   it('checkPin: true on success, false on pin_invalid, rethrows the rest', async () => {
