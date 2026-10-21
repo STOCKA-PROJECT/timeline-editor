@@ -48,6 +48,11 @@ export interface BuildBundleInput {
   now?: Date
   /** Called before and after each file (`loaded` 0, then the size). */
   onProgress?: (progress: BundleProgress) => void
+  /**
+   * Asset names the receiver already has (the Pi's `/api/assets`): they are left out of the zip and
+   * of the manifest. The Pi's importer takes a referenced asset from its cache when the zip lacks it.
+   */
+  skipAssets?: ReadonlySet<string>
 }
 
 export interface BuiltBundle {
@@ -76,14 +81,15 @@ export function showJsonBytes(pkg: ShowPackage): Uint8Array {
 
 /**
  * Every file the zip must contain, in zip order: `show.json`, then the audio assets, each as
- * `show.assets` lists them. An asset whose origin the package does not know
+ * `show.assets` lists them, except those in `skipAssets`. An asset whose origin the package does not know
  * (no `meta.assets` entry) is an error: without its attachment there is nothing to download.
  */
-export function planBundleFiles(pkg: ShowPackage): PlannedBundleFile[] {
+export function planBundleFiles(pkg: ShowPackage, skipAssets: ReadonlySet<string> = new Set()): PlannedBundleFile[] {
   const files: PlannedBundleFile[] = [{ path: SHOW_FILE, kind: 'show', size: showJsonBytes(pkg).length }]
   const refs = pkg.meta.assets ?? []
   for (const kind of ASSET_KINDS) {
     for (const name of pkg.assets[kind]) {
+      if (skipAssets.has(name)) continue
       const ref = refs.find(r => r.kind === kind && r.name === name)
       if (!ref) {
         throw new BundleBuildError(
@@ -97,7 +103,7 @@ export function planBundleFiles(pkg: ShowPackage): PlannedBundleFile[] {
 
 export async function buildBundle(input: BuildBundleInput): Promise<BuiltBundle> {
   const now = input.now ?? new Date()
-  const plan = planBundleFiles(input.pkg)
+  const plan = planBundleFiles(input.pkg, input.skipAssets)
   const entries: BundleFileEntry[] = []
   const contents: Zippable = {}
 

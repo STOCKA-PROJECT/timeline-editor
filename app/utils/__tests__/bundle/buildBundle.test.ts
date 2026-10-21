@@ -228,6 +228,32 @@ describe('buildBundle', () => {
     })
   })
 
+  describe('skipAssets (the receiver already has them)', () => {
+    it('leaves the skipped audio out of the zip and of the manifest, keeping it in show.json', async () => {
+      let fetched = 0
+      const { bytes, manifest } = await buildBundle({
+        pkg: samplePkg(), now: NOW, skipAssets: new Set(['nature.mp3']),
+        fetchAsset: async (ref) => { fetched++; return bytesOf(ref) }
+      })
+      expect(fetched).toBe(0)
+      expect(Object.keys(unzipSync(bytes)).sort()).toEqual(['manifest.json', 'show.json'])
+      expect(manifest.files.map(f => f.path)).toEqual(['show.json'])
+      const show = JSON.parse(strFromU8(unzipSync(bytes)['show.json']!)) as ShowPackage
+      expect(show.assets.audio).toEqual(['nature.mp3'])
+    })
+
+    it('names it does not reference change nothing', async () => {
+      const plan = planBundleFiles(samplePkg(), new Set(['other.mp3']))
+      expect(plan.map(f => f.path)).toEqual(['show.json', 'assets/audio/nature.mp3'])
+    })
+
+    it('skipping an asset whose origin is unknown is fine: nothing needs downloading', () => {
+      const pkg = samplePkg()
+      pkg.meta.assets = []
+      expect(planBundleFiles(pkg, new Set(['nature.mp3'])).map(f => f.path)).toEqual(['show.json'])
+    })
+  })
+
   // `WRITE_FIXTURES=1 pnpm test` leaves the zip for rpi4-system (`python -m tools.bundle_tool inspect`).
   it.runIf(process.env.WRITE_FIXTURES === '1')('writes the interop fixture for the Python importer', async () => {
     const { bytes, fileName } = await buildBundle({ pkg: samplePkg(), fetchAsset, now: NOW })
