@@ -21,7 +21,7 @@ export interface ExecutionPort {
   id: number
   name: string
   kind: OutputKind
-  /** Piece type the port belongs to; null for infrastructure ports (strips, button). */
+  /** Piece type the port belongs to; null for infrastructure ports (strips, expanders, sensors). */
   pieceTypeId: number | null
   /** GPIO pin for kinds that have one; null otherwise. */
   pin: number | null

@@ -3,7 +3,7 @@ import catalogJson from '~/data/catalog.json'
 // Output catalog shared with the backend and the Raspberry Pi player. `app/data/catalog.json` is a
 // byte-identical copy of `rpi4-system/contract/catalog.json`; keep them in sync (see `version`).
 
-export type OutputKind = 'relay' | 'gpio_expander' | 'led_strip' | 'led_segment' | 'motor' | 'audio' | 'moving_head' | 'button'
+export type OutputKind = 'relay' | 'gpio_expander' | 'led_strip' | 'led_segment' | 'motor' | 'audio' | 'moving_head' | 'sensor'
 export type CatalogType = 'int' | 'number' | 'bool' | 'string' | 'rgb' | 'rgb_list' | 'enum'
 
 export interface CatalogParam {

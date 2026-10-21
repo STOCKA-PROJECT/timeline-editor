@@ -132,7 +132,7 @@ export interface PieceTypeResponseDto {
  * A hardware port of the organization's belén controller, typed by the output catalog (`kind`)
  * and carrying a kind-specific `config` (strip DMA/channel/length, segment strip/first/last, the
  * three motor pins...). Piece-bound ports reference a piece type of the same kind and are
- * assignable to a board item whose piece is of that type; infrastructure ports (strips, button)
+ * assignable to a board item whose piece is of that type; infrastructure ports (strips, expanders, sensors)
  * have no piece type. Gated feature: organizations without it expose no ports.
  */
 export interface PortResponseDto {
@@ -141,7 +141,7 @@ export interface PortResponseDto {
   kind: OutputKind
   pieceTypeId: number | null
   pieceTypeName: string | null
-  /** GPIO pin for kinds that have one (relay, led_strip, button); null otherwise. */
+  /** GPIO pin for kinds that have one (relay, led_strip, sensor); null otherwise. */
   pin: number | null
   config: Record<string, unknown>
   position: number

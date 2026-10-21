@@ -33,22 +33,22 @@ describe('slugify', () => {
 
 describe('shortHash', () => {
   it('takes the 8 hex digits after the sha256: prefix', () => {
-    expect(shortHash('sha256:48a434c027e3fe7420d094bb5cbf119924f1e0c93b385cddd9766d808a00c92d')).toBe('48a434c0')
+    expect(shortHash('sha256:88db057d40d0926dab27200759f898fddc5161abc9104f84b192984fa9cb4ce5')).toBe('88db057d')
   })
 })
 
 describe('bundleFileName', () => {
   it('names the shared sample exactly like the Python tool', () => {
-    expect(bundleFileName(pkg)).toBe('pessebre-2026-mostra-48a434c0.belen.zip')
+    expect(bundleFileName(pkg)).toBe('pessebre-2026-mostra-88db057d.belen.zip')
   })
 
   it('falls back to "show" when the name has nothing usable', () => {
-    expect(bundleFileName({ meta: { ...pkg.meta, name: '¡¡¡' } })).toBe(`show-48a434c0${BUNDLE_EXTENSION}`)
+    expect(bundleFileName({ meta: { ...pkg.meta, name: '¡¡¡' } })).toBe(`show-88db057d${BUNDLE_EXTENSION}`)
   })
 
   it('the same show under another name keeps the hash part', () => {
     const renamed = bundleFileName({ meta: { ...pkg.meta, name: 'Altre nom' } })
-    expect(renamed).toBe('altre-nom-48a434c0.belen.zip')
+    expect(renamed).toBe('altre-nom-88db057d.belen.zip')
     expect(renamed.endsWith(BUNDLE_EXTENSION)).toBe(true)
   })
 })

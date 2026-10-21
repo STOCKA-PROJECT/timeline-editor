@@ -50,7 +50,7 @@ describe('buildBundle', () => {
   it('names the file like the Python tool and writes a manifest the contract accepts', async () => {
     const pkg = samplePkg()
     const { manifest, fileName } = await buildBundle({ pkg, fetchAsset, now: NOW })
-    expect(fileName).toBe('pessebre-2026-mostra-48a434c0.belen.zip')
+    expect(fileName).toBe('pessebre-2026-mostra-88db057d.belen.zip')
     expect(manifest.format).toBe('stocka-bundle')
     expect(manifest.version).toBe(1)
     expect(manifest.show).toEqual({ hash: pkg.meta.hash, name: 'Pessebre 2026 (mostra)', timelineId: null, board: 'rpi4b' })

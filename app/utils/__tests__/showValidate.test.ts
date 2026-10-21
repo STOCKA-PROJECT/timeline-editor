@@ -82,8 +82,8 @@ describe('validateShowPackage', () => {
 
   it('pins: duplicates (strip, motor), reserved, pull-up warning, board range', () => {
     expect(codes(pkg(p => { p.hardware.Focos!.pin = 13 }))).toContain('E_PIN_DUPLICATE')
-    expect(codes(pkg(p => { p.hardware.Angel = { kind: 'motor', pinR: 26, pinL: 4, sensorPin: 5, downTime: 10, maxUpTime: 13 } }))).toContain('E_PIN_DUPLICATE')
-    expect(codes(pkg(p => { p.hardware.Angel = { kind: 'motor', pinR: 4, pinL: 4, sensorPin: 5, downTime: 10, maxUpTime: 13 } }))).toContain('E_CONFIG_INVALID')
+    expect(codes(pkg(p => { p.hardware.Angel = { kind: 'motor', pinForward: 26, pinReverse: 4, maxTimeForward: 13, maxTimeReverse: 10 } }))).toContain('E_PIN_DUPLICATE')
+    expect(codes(pkg(p => { p.hardware.Angel = { kind: 'motor', pinForward: 4, pinReverse: 4, maxTimeForward: 13, maxTimeReverse: 10 } }))).toContain('E_PIN_DUPLICATE')
     expect(codes(pkg(p => { p.hardware.Focos!.pin = 0 }))).toContain('E_PIN_RESERVED')
     expect(codes(pkg(p => { p.hardware.Focos!.pin = 40 }))).toContain('E_PIN_OUT_OF_BOARD')
     const pullup = pkg(p => { p.hardware.Focos!.pin = 6 })
@@ -143,10 +143,12 @@ describe('validateShowPackage', () => {
     })
     expect(validateShowPackage(overlap).filter(i => i.code === 'W_OVERLAP_CONTINUOUS').length).toBeGreaterThanOrEqual(2)
     expect(codes(pkg(p => { p.hardware.Audio2 = { kind: 'audio' } }), 'warning')).toContain('W_LEGACY_SINGLE')
+    // The player drives any number of motors: two motors are no longer a legacy warning.
+    expect(codes(full(), 'warning')).not.toContain('W_LEGACY_SINGLE')
   })
 })
 
-describe('validateShowPackage · contract v3 (expanders, moving heads, motor)', () => {
+describe('validateShowPackage · contract v3 (expanders, moving heads, motors, sensors)', () => {
   it('accepts the complete 2026 sample with no errors', () => {
     expect(codes(full(), 'error')).toEqual([])
     expect(codes(full(), 'warning')).not.toContain('W_PORT_UNUSED')
@@ -188,14 +190,65 @@ describe('validateShowPackage · contract v3 (expanders, moving heads, motor)', 
     expect(codes(empty, 'warning')).toContain('W_EMPTY_CUE')
   })
 
-  it('motor: maxUpTime required, start_up within it, a short one warns', () => {
-    expect(codes(full(p => { delete p.hardware.Angel!.maxUpTime }))).toContain('E_CONFIG_INVALID')
-    const up = (p: ShowPackage) => p.timeline.find(e => e.action === 'start_up')!
-    expect(codes(full(p => { up(p).params.time = 25 }))).toContain('E_MOTOR_UP_TIME')
-    expect(codes(full(p => { up(p).params.time = 24 }))).not.toContain('E_MOTOR_UP_TIME')
-    const short = full(p => { p.hardware.Angel!.maxUpTime = 10 })
-    expect(codes(short, 'error')).toEqual([])
-    expect(codes(short, 'warning')).toContain('W_MOTOR_UP_TIME_SHORT')
+  it('motor: both max times required; a clip over one is an error, or a warning with a limit sensor', () => {
+    expect(codes(full(p => { delete p.hardware.Angel!.maxTimeForward }))).toContain('E_CONFIG_INVALID')
+    expect(codes(full(p => { delete p.hardware.Noria!.maxTimeReverse }))).toContain('E_CONFIG_INVALID')
+    // The sample's Angel forward clip (30 s) is longer than maxTimeForward (24) but has a limit sensor.
+    expect(codes(full(), 'warning')).toContain('W_MOTOR_TIME_CAPPED')
+    expect(codes(full(p => { delete p.hardware.Angel!.limitForward }))).toContain('E_MOTOR_TIME')
+    const rev = (p: ShowPackage) => p.timeline.find(e => e.target === 'Angel' && e.action === 'reverse')!
+    expect(codes(full(p => { rev(p).params.time = 19 }))).toContain('E_MOTOR_TIME')
+    expect(codes(full(p => { rev(p).params.time = 18 }))).not.toContain('E_MOTOR_TIME')
+    expect(codes(full(p => { delete rev(p).params.time }), 'error')).toEqual([])
+    expect(codes(full(p => { rev(p).action = 'start_down' }))).toContain('E_ACTION_UNKNOWN')
+  })
+
+  it('motor outputs: both native pins, or the expander with two distinct channels', () => {
+    expect(codes(full(p => { delete p.hardware.Angel!.pinReverse }))).toContain('E_MOTOR_OUTPUTS')
+    expect(codes(full(p => { p.hardware.Angel!.channelForward = 1 }))).toContain('E_MOTOR_OUTPUTS')
+    expect(codes(full(p => { p.hardware.Noria!.pinForward = 5 }))).toContain('E_MOTOR_OUTPUTS')
+    expect(codes(full(p => { delete p.hardware.Noria!.channelReverse }))).toContain('E_MOTOR_OUTPUTS')
+    expect(codes(full(p => { p.hardware.Noria!.channelReverse = 6 }))).toContain('E_MOTOR_OUTPUTS')
+    expect(codes(full(p => { p.hardware.Noria!.activeLow = true }))).toContain('E_MOTOR_OUTPUTS')
+    expect(codes(full(p => { p.hardware.Angel!.activeLow = true }), 'error')).toEqual([])
+    const message = validateShowPackage(full(p => { delete p.hardware.Angel!.pinReverse })).find(i => i.code === 'E_MOTOR_OUTPUTS')!
+    expect(message.port).toBe('Angel')
+    expect(message.message).toContain('necessita pinForward i pinReverse')
+  })
+
+  it('motor channels share the expander with relays and sensors; motor pins are GPIO pins', () => {
+    const relay = validateShowPackage(full(p => { p.hardware.Estable!.channel = 7 })).find(i => i.code === 'E_EXPANDER_CHANNEL_DUPLICATE')!
+    expect(relay.message).toContain('Estable, Noria.channelReverse')
+    expect(codes(full(p => { p.hardware.PortaCaixa!.channel = 6 }))).toContain('E_EXPANDER_CHANNEL_DUPLICATE')
+    expect(codes(full(p => { p.hardware.Noria!.expander = 'exp9' }))).toContain('E_EXPANDER_MISSING')
+    expect(codes(full(p => { p.hardware.Angel!.pinForward = 3 }))).toContain('E_PIN_RESERVED')
+    expect(codes(full(p => { p.hardware.Angel!.pinForward = 23 }))).toContain('E_PIN_DUPLICATE')
+  })
+
+  it('limits must name sensor ports', () => {
+    expect(codes(full(p => { p.hardware.Angel!.limitForward = 'Fantasma' }))).toContain('E_SENSOR_MISSING')
+    expect(codes(full(p => { p.hardware.Angel!.limitReverse = 'Sembra' }))).toContain('E_SENSOR_MISSING')
+    expect(codes(full(p => { p.hardware.Angel!.limitReverse = 'Seta' }), 'error')).toEqual([])
+  })
+
+  it('sensors: pin or expander + channel, own polarity, no pull down on an expander, known onActive, no actions', () => {
+    expect(codes(full(p => { p.hardware.PortaCaixa!.pin = 24 }))).toContain('E_CONFIG_INVALID')
+    expect(codes(full(p => { delete p.hardware.PortaCaixa!.channel }))).toContain('E_CONFIG_INVALID')
+    expect(codes(full(p => { delete p.hardware.Seta!.pin }))).toContain('E_CONFIG_INVALID')
+    expect(codes(full(p => { p.hardware.Seta!.channel = 1 }))).toContain('E_CONFIG_INVALID')
+    expect(codes(full(p => { p.hardware.PortaCaixa!.activeLow = false; p.hardware.PortaCaixa!.pull = 'none' }), 'error')).toEqual([])
+    expect(codes(full(p => { p.hardware.PortaCaixa!.pull = 'down' }))).toContain('E_CONFIG_INVALID')
+    expect(codes(full(p => { p.hardware.Seta!.pull = 'down' }), 'error')).toEqual([])
+    expect(codes(full(p => { p.hardware.Seta!.onActive = 'explode' }))).toContain('E_CONFIG_INVALID')
+    expect(codes(full(p => { p.hardware.Seta!.debounceMs = 2001 }))).toContain('E_CONFIG_INVALID')
+    expect(codes(full(p => { p.timeline.push({ t: 1000, target: 'Seta', action: 'press', params: {} }) }))).toContain('E_ACTION_UNKNOWN')
+  })
+
+  it('a sensor without onActive that no motor uses warns; limits and onActive sensors do not', () => {
+    const issues = validateShowPackage(full(p => { p.hardware.Solt = { kind: 'sensor', pin: 24 } }))
+    expect(issues.filter(i => i.code === 'W_SENSOR_UNUSED').map(i => i.port)).toEqual(['Solt'])
+    expect(codes(full(), 'warning')).not.toContain('W_SENSOR_UNUSED')
+    expect(codes(full(p => { delete p.hardware.Angel!.limitForward }), 'warning')).toContain('W_SENSOR_UNUSED')
   })
 
   it('the projector is gone: video kind and focoOn are unknown', () => {

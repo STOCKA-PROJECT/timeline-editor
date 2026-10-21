@@ -22,7 +22,7 @@ export const ports: PortResponseDto[] = [
   port(8, 'CasaSimple', 'led_segment', SEGMENT_TYPE, null, { strip: 'LedStrip4', first: 0, last: 15 }),
   port(9, 'CasaDoble', 'led_segment', SEGMENT_TYPE, null, { strip: 'LedStrip4', first: 16, last: 43 }),
   port(10, 'Audio', 'audio', AUDIO_TYPE, null, {}),
-  port(11, 'Pulsador Belen', 'button', null, 20, {})
+  port(11, 'Pulsador Belen', 'sensor', null, 20, { onActive: 'play' })
 ]
 
 export const pieces: PieceListItemDto[] = [

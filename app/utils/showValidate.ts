@@ -9,6 +9,14 @@ type Hardware = ShowPackage['hardware']
 
 const I2C_PINS = [2, 3]
 const DMX_UNIVERSE = 512
+const MOTOR_PIN_KEYS = ['pinForward', 'pinReverse'] as const
+const MOTOR_CHANNEL_KEYS = ['channelForward', 'channelReverse'] as const
+const MOTOR_LIMIT_KEYS = ['limitForward', 'limitReverse'] as const
+/** Direction of a motor action → [hard-cut key, limit-switch key]. */
+const MOTOR_DIRECTIONS: Record<string, [string, string]> = {
+  forward: ['maxTimeForward', 'limitForward'],
+  reverse: ['maxTimeReverse', 'limitReverse'],
+}
 
 /**
  * Strict type check of a value already in package form (no coercion: the device reads it as is).
@@ -54,11 +62,40 @@ function pinsOf(name: string, entry: Hardware[string], hasPin: boolean): Array<[
   const out: Array<[string, number]> = []
   if (hasPin && typeof entry.pin === 'number') out.push([name, entry.pin])
   if (entry.kind === 'motor') {
-    for (const key of ['pinR', 'pinL', 'sensorPin'] as const) {
+    for (const key of MOTOR_PIN_KEYS) {
       if (typeof entry[key] === 'number') out.push([`${name}.${key}`, entry[key] as number])
     }
   }
   return out
+}
+
+/** Expander channels an entry occupies: `[label, channel]` (relays, sensors and motors). */
+function expanderChannelsOf(name: string, entry: Hardware[string]): Array<[string, number]> {
+  if (!('expander' in entry)) return []
+  const keys: readonly string[] = entry.kind === 'motor' ? MOTOR_CHANNEL_KEYS : entry.kind === 'relay' || entry.kind === 'sensor' ? ['channel'] : []
+  const out: Array<[string, number]> = []
+  for (const key of keys) {
+    const value = entry[key]
+    if (typeof value === 'number' && Number.isInteger(value)) out.push([key === 'channel' ? name : `${name}.${key}`, value])
+  }
+  return out
+}
+
+/** Problems of a motor's outputs (pins or expander), in Catalan; empty when coherent. Mirrors `motor_output_problems`. */
+export function motorOutputProblems(entry: Hardware[string]): string[] {
+  const pins = MOTOR_PIN_KEYS.filter(k => k in entry).length
+  const channels = MOTOR_CHANNEL_KEYS.filter(k => k in entry).length
+  const problems: string[] = []
+  if ('expander' in entry) {
+    if (pins > 0) problems.push('no pot tenir pins i expansor alhora')
+    if (channels !== 2) problems.push('amb expansor necessita channelForward i channelReverse')
+    else if (entry.channelForward === entry.channelReverse) problems.push('channelForward i channelReverse han de ser diferents')
+    if ('activeLow' in entry) problems.push("«activeLow» es declara a l'expansor")
+  } else {
+    if (channels > 0) problems.push('els canals només tenen sentit amb «expander»')
+    if (pins !== 2) problems.push('necessita pinForward i pinReverse, o expander amb els dos canals')
+  }
+  return problems
 }
 
 export function validateShowPackage(pkg: ShowPackage, catalog: OutputCatalog = defaultCatalog): ShowIssue[] {
@@ -93,7 +130,8 @@ export function validateShowPackage(pkg: ShowPackage, catalog: OutputCatalog = d
       if ('expander' in entry) {
         if (hasPin) issues.push(issue('error', 'E_CONFIG_INVALID', `El port «${name}» no pot tenir «pin» i «expander» alhora.`, { port: name }))
         if (!('channel' in entry)) issues.push(issue('error', 'E_CONFIG_INVALID', `El port «${name}» necessita «channel» amb l'expansor.`, { port: name }))
-        if ('activeLow' in entry) issues.push(issue('error', 'E_CONFIG_INVALID', `El port «${name}»: «activeLow» es declara a l'expansor, no al relé.`, { port: name }))
+        if (entry.kind === 'relay' && 'activeLow' in entry) issues.push(issue('error', 'E_CONFIG_INVALID', `El port «${name}»: «activeLow» es declara a l'expansor, no al relé.`, { port: name }))
+        if (entry.kind === 'sensor' && entry.pull === 'down') issues.push(issue('error', 'E_CONFIG_INVALID', `El sensor «${name}»: un canal d'expansor només admet pull «up» o «none».`, { port: name }))
       } else if (!hasPin) {
         issues.push(issue('error', 'E_CONFIG_INVALID', `El port «${name}» necessita «pin» o «expander» + «channel».`, { port: name }))
       } else if ('channel' in entry) {
@@ -131,12 +169,8 @@ export function validateShowPackage(pkg: ShowPackage, catalog: OutputCatalog = d
       }
     }
     if (entry.kind === 'motor') {
-      const pins = ['pinR', 'pinL', 'sensorPin'].map(k => entry[k]).filter(v => typeof v === 'number')
-      if (new Set(pins).size !== pins.length) {
-        issues.push(issue('error', 'E_CONFIG_INVALID', `El motor «${name}» repeteix un pin entre pinR, pinL i sensorPin.`, { port: name }))
-      }
-      if (typeof entry.downTime === 'number' && typeof entry.maxUpTime === 'number' && entry.maxUpTime < entry.downTime) {
-        issues.push(issue('warning', 'W_MOTOR_UP_TIME_SHORT', `El motor «${name}»: maxUpTime (${entry.maxUpTime}) és menor que downTime (${entry.downTime}); potser no arribarà a dalt.`, { port: name }))
+      for (const why of motorOutputProblems(entry)) {
+        issues.push(issue('error', 'E_MOTOR_OUTPUTS', `El motor «${name}»: ${why}.`, { port: name }))
       }
     }
   }
@@ -168,21 +202,42 @@ export function validateShowPackage(pkg: ShowPackage, catalog: OutputCatalog = d
   const expanderNames = new Set(expanders.map(([n]) => n))
   const channels = new Map<string, string[]>()
   for (const [name, entry] of Object.entries(hardware)) {
-    if (entry.kind !== 'relay' || !('expander' in entry)) continue
+    if (!['relay', 'sensor', 'motor'].includes(entry.kind) || !('expander' in entry)) continue
     const expander = String(entry.expander)
     if (!expanderNames.has(expander)) {
-      issues.push(issue('error', 'E_EXPANDER_MISSING', `El relé «${name}» referencia l'expansor «${expander}», que no existeix com a gpio_expander.`, { port: name }))
+      issues.push(issue('error', 'E_EXPANDER_MISSING', `El port «${name}» referencia l'expansor «${expander}», que no existeix com a gpio_expander.`, { port: name }))
       continue
     }
-    if (typeof entry.channel === 'number') {
-      const key = `${expander}:${entry.channel}`
-      channels.set(key, [...(channels.get(key) ?? []), name])
+    for (const [label, channel] of expanderChannelsOf(name, entry)) {
+      const key = `${expander}:${channel}`
+      channels.set(key, [...(channels.get(key) ?? []), label])
     }
   }
   for (const [key, names] of channels) {
     if (names.length > 1) {
       const sep = key.lastIndexOf(':')
-      issues.push(issue('error', 'E_EXPANDER_CHANNEL_DUPLICATE', `El canal ${key.slice(sep + 1)} de «${key.slice(0, sep)}» l'usen més d'un relé: ${names.join(', ')}.`))
+      issues.push(issue('error', 'E_EXPANDER_CHANNEL_DUPLICATE', `El canal ${key.slice(sep + 1)} de «${key.slice(0, sep)}» l'usen més d'un port: ${names.join(', ')}.`))
+    }
+  }
+
+  // --- motors: limit switches; sensors nobody uses -------------------------------------------
+  const referencedSensors = new Set<string>()
+  for (const [name, entry] of Object.entries(hardware)) {
+    if (entry.kind !== 'motor') continue
+    for (const key of MOTOR_LIMIT_KEYS) {
+      if (!(key in entry)) continue
+      const sensor = entry[key]
+      const target = typeof sensor === 'string' ? hardware[sensor] : undefined
+      if (!target || target.kind !== 'sensor') {
+        issues.push(issue('error', 'E_SENSOR_MISSING', `El motor «${name}»: «${key}» referencia «${String(sensor)}», que no existeix com a sensor.`, { port: name }))
+      } else {
+        referencedSensors.add(sensor as string)
+      }
+    }
+  }
+  for (const [name, entry] of Object.entries(hardware)) {
+    if (entry.kind === 'sensor' && (entry.onActive ?? 'none') === 'none' && !referencedSensors.has(name)) {
+      issues.push(issue('warning', 'W_SENSOR_UNUSED', `El sensor «${name}» no fa res: cap motor el fa servir i no té onActive.`, { port: name }))
     }
   }
 
@@ -282,8 +337,17 @@ export function validateShowPackage(pkg: ShowPackage, catalog: OutputCatalog = d
         }
       }
     }
-    if (entry.kind === 'motor' && ev.action === 'start_up' && typeof params.time === 'number' && typeof entry.maxUpTime === 'number' && params.time > entry.maxUpTime) {
-      issues.push(issue('error', 'E_MOTOR_UP_TIME', `${where}: time=${params.time} supera el maxUpTime (${entry.maxUpTime}) del motor «${ev.target}».`, { port: ev.target }))
+    const direction = entry.kind === 'motor' ? MOTOR_DIRECTIONS[ev.action] : undefined
+    if (direction && typeof params.time === 'number') {
+      const [maxKey, limitKey] = direction
+      const limitTime = entry[maxKey]
+      if (typeof limitTime === 'number' && params.time > limitTime) {
+        if (entry[limitKey]) {
+          issues.push(issue('warning', 'W_MOTOR_TIME_CAPPED', `${where}: el clip dura ${params.time} s però «${ev.target}» mai gira més de ${limitTime} s en aquest sentit; pararà abans pel final de carrera o pel tall.`, { port: ev.target }))
+        } else {
+          issues.push(issue('error', 'E_MOTOR_TIME', `${where}: time=${params.time} supera el ${maxKey} (${limitTime}) del motor «${ev.target}».`, { port: ev.target }))
+        }
+      }
     }
     if (entry.kind === 'moving_head' && ev.action === 'set' && Object.keys(params).every(k => k === 'time')) {
       issues.push(issue('warning', 'W_EMPTY_CUE', `${where}: el cue de «${ev.target}» no canvia res (només time).`, { port: ev.target }))
@@ -314,7 +378,7 @@ export function validateShowPackage(pkg: ShowPackage, catalog: OutputCatalog = d
     if (Object.keys(spec.actions).length > 0 && !spec.infrastructure && !usedTargets.has(name)) {
       issues.push(issue('warning', 'W_PORT_UNUSED', `El port «${name}» no té cap esdeveniment.`, { port: name }))
     }
-    if (entry.kind === 'motor' || entry.kind === 'audio') {
+    if (entry.kind === 'audio') {
       singletons.set(entry.kind, [...(singletons.get(entry.kind) ?? []), name])
     }
   }
