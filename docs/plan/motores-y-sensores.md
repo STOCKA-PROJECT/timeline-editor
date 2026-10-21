@@ -54,7 +54,7 @@ Sin acciones: no es un objetivo del timeline. Aparece en `hardware` porque el re
 "Angel": {
   "kind": "motor",
   "pinForward": 27, "pinReverse": 17,
-  "switchDelayMs": 300,
+  "switchDelayMs": 50,
   "maxTimeForward": 24, "limitForward": "AngelDalt",
   "maxTimeReverse": 18,
   "lockOnTimeout": true
@@ -66,7 +66,7 @@ Sin acciones: no es un objetivo del timeline. Aparece en `hardware` porque el re
 |---|---|---|
 | `pinForward`, `pinReverse` **o** `expander` + `channelForward` + `channelReverse` | ints / ref + ints | Las dos salidas en GPIO o las dos en el **mismo** expansor (una placa de relés o un puente H), nunca mezcladas. Canales distintos. Un canal lo usa un solo puerto, sea relé o motor |
 | `activeLow` | bool, por defecto false | Solo nativos; en el expansor manda la placa |
-| `switchDelayMs` | int 0–5000, por defecto 300 | Tiempo muerto con las dos salidas apagadas al invertir el sentido (protege relés y puente) |
+| `switchDelayMs` | int 0–5000, por defecto 50 | Tiempo muerto con las dos salidas apagadas al invertir el sentido. Los motores van con puente H (IN1/IN2 = salida normal / invertida); un motor con relés mecánicos debería subirlo a 300 ms o más |
 | `maxTimeForward`, `maxTimeReverse` | number > 0, **obligatorios** | Tope duro por sentido: el motor nunca gira más de ese tiempo seguido en ese sentido, pase lo que pase |
 | `limitForward`, `limitReverse` | ref `sensor`, opcionales | Final de carrera: al activarse el sensor mientras gira en ese sentido, el motor para. Si ya está activo al pedir el giro, no arranca |
 | `lockOnTimeout` | bool, por defecto false | Si un sentido **con** sensor acaba por `maxTime`, además de la alerta el motor queda bloqueado (no acepta giros) hasta que se libere desde la página o la app |
@@ -105,7 +105,7 @@ Reglas cruzadas en el backend (`PortService`): borrar un sensor que un motor usa
 ## 3. Reproductor (`rpi4-system`)
 
 - **Entradas** (`app/modules/inputs/inputController.py`, nuevo): lee los sensores (GPIO y canales de entrada de los expansores) en un hilo cada 20 ms, aplica el antirrebote y mantiene `active[nombre]`. Expone `is_active(name)`, `snapshot()` para el estado y `on_change(callback)`. Lee el **nivel crudo** con una función nueva `gpios.read_level(pin)` (la actual `get_gpio` invierte el nivel a mano y se queda solo para el core antiguo) y configura el GPIO con el `pull` del sensor. El driver `Mcp23017` gana dirección por canal (bits de `IODIR`), pull-up (`GPPU`) y `read_channel`, con las salidas intactas.
-- **Motores** (`app/modules/motors/motorController.py`, nuevo, sustituye a `AngelController` en el core nuevo): N motores construidos desde `hardware`, salidas `GpioRelay`/`ExpanderRelay` reutilizadas del `RelayController`. `forward(name, time=None)` y `reverse(name, time=None)` lanzan una tarea por motor que enciende la salida, vigila el tiempo del clip, el límite y `maxTime`, y apaga; la inversión pasa por `switchDelayMs` con todo apagado; la clase garantiza que las dos salidas nunca estén activas a la vez. `stop(name=None)`, `is_process_running(name=None)`, `_set_blocked(names)`, `status()` (dirección, segundos girando, último fin: `time` / `limit` / `max_time` / `stop`). Un giro que acaba por `maxTime` en un sentido con sensor emite una **alerta** (y bloquea el motor si `lockOnTimeout`). `AngelController` queda solo para `main.py --legacy`.
+- **Motores** (`app/modules/motors/motorController.py`, nuevo, sustituye a `AngelController` en el core nuevo): N motores construidos desde `hardware`, salidas `GpioRelay`/`ExpanderRelay` reutilizadas del `RelayController`. `forward(name, time=None)` y `reverse(name, time=None)` lanzan una tarea por motor que enciende la salida, vigila el tiempo del clip, el límite y `maxTime`, y apaga; la inversión pasa por `switchDelayMs` con todo apagado; la clase garantiza que las dos salidas nunca estén activas a la vez (en un puente H, IN1 e IN2 altos a la vez frenan o cortocircuitan según el modelo; el reproductor nunca lo hace) y que `stop` deje las dos a nivel bajo (motor libre). `stop(name=None)`, `is_process_running(name=None)`, `_set_blocked(names)`, `status()` (dirección, segundos girando, último fin: `time` / `limit` / `max_time` / `stop`). Un giro que acaba por `maxTime` en un sentido con sensor emite una **alerta** (y bloquea el motor si `lockOnTimeout`). `AngelController` queda solo para `main.py --legacy`.
 - **Core**: `status.sensors` (estado en vivo), `status.alerts` (lista con código, puerto, mensaje y hora; en memoria desde el arranque), `onActive` de los sensores conectado a `stop()`/`panic()`, `_safe_outputs` para motores, overrides (sensor cortado = nunca activo; motor cortado = salidas a cero, como los relés), latido con `alerts`. API: `GET /api/alerts`, `DELETE /api/alerts` (y `POST /api/motors/{name}/unlock` para `lockOnTimeout`). Modo prueba: motor `{"direction": "forward" | "reverse" | "stop"}` (refresco cada 0,5 s, como hoy) y, en el panel «Prova», un indicador en vivo por sensor: es la herramienta para comprobar el cableado del IR y de las setas sin mover nada.
 - **Herramientas**: `tools/boot_gpio.py` añade `pinForward`/`pinReverse` (`op,dl` / `op,dh` según `activeLow`); `show_to_legacy` deja de convertir motores (ya no hay forma antigua: `ConversionError` en modo estricto, omitidos en el cargador).
 - **Tests**: `InputController` con GPIO y expansor simulados (polaridad, pull, antirrebote, `onActive`), `MotorController` (fin por `time`/límite/`maxTime`, inversión con tiempo muerto, exclusión A/B, bloqueo, alerta, `lockOnTimeout`, cortes), reglas nuevas del validador, muestra completa con dos motores y tres sensores (uno de pánico), core (alertas en status y latido, test mode), API.
@@ -120,7 +120,7 @@ Reglas cruzadas en el backend (`PortService`): borrar un sensor que un motor usa
 ## 5. Banco (se añade al §7 de la fase 4)
 
 1. Cada sensor en el panel «Prova»: activo/inactivo al tapar el IR o pulsar la seta; polaridad correcta.
-2. Ángel: «Girar» para en el sensor; con el sensor desconectado para a `maxTimeForward` y aparece la alerta; «Girar (invertit)» gira la duración del clip; inversión en marcha respeta `switchDelayMs` (se oye el relé soltar antes de pegar).
+2. Ángel: «Girar» para en el sensor; con el sensor desconectado para a `maxTimeForward` y aparece la alerta; «Girar (invertit)» gira la duración del clip; inversión en marcha respeta `switchDelayMs` (con un LED o el osciloscopio en IN1/IN2: nunca altos a la vez).
 3. Segundo motor por expansor: mismas comprobaciones; los dos canales nunca a la vez (medir con el multímetro).
 4. Seta de emergencia (`onActive: panic`): todo a seguro en menos de 100 ms y estado `SAFE`.
 5. Medir las subidas y bajadas reales y fijar `maxTimeForward/Reverse` a 1,3 veces la más lenta.
@@ -152,7 +152,7 @@ Se van preguntando en el chat a medida que hacen falta; aquí queda lo que se de
 | 8 | (Absorbida por la 7) | — |
 | 9 | Seguimos en contrato v3 aunque cambie el hash dorado | **Decidido** (Joan, 21-10): sí, v3; el hash dorado se actualiza en los tres repos en el mismo cambio |
 | 10 | Migración V26 de motores, pulsadores y acciones | **Decidido** (Joan, 21-10): sí, conversión automática de puertos `motor` (con su sensor «`<motor>-límit`»), puertos `button` (a `sensor` `onActive: play`) y acciones `start_up`/`start_down`; se ensaya sobre la copia local de producción antes de desplegar |
-| 11 | Tiempo muerto al invertir por defecto 300 ms | Pendiente (recomendado: sí) |
+| 11 | Tiempo muerto al invertir | **Decidido** (Joan, 21-10): los motores van con puente H; `switchDelayMs` por defecto **50 ms**, configurable por motor (300 ms o más si algún motor va con relés) |
 
 ## 8. Fuera de alcance (y cómo encajaría)
 
