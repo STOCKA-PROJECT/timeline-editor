@@ -154,6 +154,24 @@ Se van preguntando en el chat a medida que hacen falta; aquí queda lo que se de
 | 10 | Migración V26 de motores, pulsadores y acciones | **Decidido** (Joan, 21-10): sí, conversión automática de puertos `motor` (con su sensor «`<motor>-límit`»), puertos `button` (a `sensor` `onActive: play`) y acciones `start_up`/`start_down`; se ensaya sobre la copia local de producción antes de desplegar |
 | 11 | Tiempo muerto al invertir | **Decidido** (Joan, 21-10): los motores van con puente H; `switchDelayMs` por defecto **50 ms**, configurable por motor (300 ms o más si algún motor va con relés) |
 
+## 7b. Estado de implementación (21-10-2026)
+
+Implementado y commiteado en los cinco repos; nada subido a GitHub ni desplegado.
+
+| Repo | Commit | Contenido | Pruebas |
+|---|---|---|---|
+| `rpi4-system` | ef17caf | Catálogo, esquema y `validate.py`; `InputController`, `MotorController` (puente H, tiempo muerto, finales de carrera, `maxTime`, bloqueo), alertas, `/api/alerts`, desbloqueo, página local, latido con alertas, `show_to_legacy` | 602 |
+| `backend` | 3b22da1 | Validador de puertos y `PortService` (pin o expansor común, finales de carrera, sensor en uso, canales compartidos), `ShowValidator`, alertas del latido (`last_alerts`), V26 ensayada sobre la copia de producción, Bruno, guía MCP | 2021 |
+| `timeline-editor` | 7d49de6 | Catálogo, `showValidate` con las mismas reglas, muestras y hash dorado `88db057d` (verificado con `tools.bundle_tool inspect`) | 243 |
+| `frontend` | bcdfa03 | Formulario de motor y sensor, resúmenes, alertas en Dispositius, i18n ca/es/en | `pnpm build` |
+| `belen-app` | 9654d1b | Alertas, sensores en vivo, estado y desbloqueo de motores | 92 |
+
+Cambio respecto al plan: el aviso `W_LEGACY_SINGLE` ya no cuenta motores (el reproductor nuevo
+gobierna varios); solo queda para `audio`.
+
+Pendiente: banco (§5), push de los cinco repos, despliegue en la Pi y despliegue del backend
+(Flyway V24, V25 y V26).
+
 ## 8. Fuera de alcance (y cómo encajaría)
 
 - **Velocidad** (PWM): kind aparte o parámetro `speed` del `run` solo para motores con salida PWM.
