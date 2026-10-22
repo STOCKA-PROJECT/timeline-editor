@@ -19,6 +19,8 @@ export interface CatalogParam {
   asset?: 'audio'
   /** Config keys only: the value must be the name of a port of this kind. */
   ref?: OutputKind
+  /** Hint for editors: usually fixed on the piece-type action (static) rather than set per clip. */
+  static?: boolean
   recommended?: [number, number]
   notes?: string
 }

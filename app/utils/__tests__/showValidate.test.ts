@@ -256,3 +256,30 @@ describe('validateShowPackage · contract v3 (expanders, moving heads, motors, s
     expect(codes(pkg(p => { p.timeline[0]!.action = 'focoOn' }))).toContain('E_ACTION_UNKNOWN')
   })
 })
+
+describe('validateShowPackage · relay double pulse', () => {
+  /** The Pou event of the complete sample: double_pulse(0.3, 0.2, 0.3). */
+  function doublePulse(p: ShowPackage) {
+    return p.timeline.find(e => e.action === 'double_pulse')!
+  }
+
+  it('the complete sample carries a valid double pulse', () => {
+    expect(doublePulse(full()).params).toEqual({ first_press: 0.3, gap: 0.2, second_press: 0.3 })
+    expect(codes(full(p => { doublePulse(p).params = { first_press: 5, gap: 0, second_press: 1 } }), 'error')).toEqual([])
+  })
+
+  it.each(['first_press', 'gap', 'second_press'])('requires %s', (missing) => {
+    const issues = validateShowPackage(full(p => { delete doublePulse(p).params[missing] })).filter(i => i.level === 'error')
+    expect(issues.map(i => i.code)).toEqual(['E_PARAM_REQUIRED'])
+    expect(issues[0]!.message).toContain(`«${missing}»`)
+  })
+
+  it.each([-0.1, '0.2', true, null])('rejects gap = %s', (value) => {
+    expect(codes(full(p => { doublePulse(p).params.gap = value }), 'error')).toContain('E_PARAM_TYPE')
+  })
+
+  it('has no duration parameter and the old pulse action is gone', () => {
+    expect(codes(full(p => { doublePulse(p).params.duration = 0.5 }), 'error')).toContain('E_PARAM_UNKNOWN')
+    expect(codes(full(p => { const e = doublePulse(p); e.action = 'pulse'; e.params = { duration: 0.5 } }), 'error')).toContain('E_ACTION_UNKNOWN')
+  })
+})

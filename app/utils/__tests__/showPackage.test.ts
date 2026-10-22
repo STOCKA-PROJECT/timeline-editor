@@ -269,6 +269,36 @@ describe('audio assets', () => {
   })
 })
 
+describe('relay double pulse', () => {
+  const doublePulse = (gap: string) => ({ id: 13, name: 'double_pulse', displayName: 'Doble pulsació', position: 0, parameters: [
+    { name: 'first_press', displayName: '1a pulsació (s)', type: 'DECIMAL' as const, required: true, dynamic: false, staticValue: '0.3' },
+    { name: 'gap', displayName: 'Pausa (s)', type: 'DECIMAL' as const, required: true, dynamic: false, staticValue: gap },
+    { name: 'second_press', displayName: '2a pulsació (s)', type: 'DECIMAL' as const, required: true, dynamic: false, staticValue: '5' }
+  ] })
+  function lookups(gap: string) {
+    return {
+      ...fx.catalogLookups,
+      actionsForPiece: (p: any) => fx.catalogLookups.actionsForPiece(p).map(a => (a.id === 13 ? doublePulse(gap) : a))
+    }
+  }
+
+  it('exports the three static durations as numbers, ignoring the clip length', () => {
+    const { body, issues } = assembleShowPackage(input({ catalog: lookups('0.2') }))
+    expect(issues.filter(i => i.level === 'error')).toEqual([])
+    const event = body.timeline.find(e => e.target === 'Sembra' && e.t === 7000)!
+    expect(event.action).toBe('double_pulse')
+    expect(event.params).toEqual({ first_press: 0.3, gap: 0.2, second_press: 5 })
+    expect(Object.keys(event.params)).toEqual(['first_press', 'gap', 'second_press'])
+  })
+
+  it('a missing static value is E_PARAM_REQUIRED', () => {
+    const { issues } = assembleShowPackage(input({ catalog: lookups('') }))
+    const errors = issues.filter(i => i.level === 'error')
+    expect(codes(errors)).toContain('E_PARAM_REQUIRED')
+    expect(errors.some(i => i.message.includes('«gap»'))).toBe(true)
+  })
+})
+
 describe('pieces sharing a LED strip', () => {
   const STRIP_TYPE = 5
   const stripActions = [
