@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import type { ShowIssue } from '~/types/show'
+import type { DeviceEntry } from '~/utils/pi/deviceRegistry'
 import { PiApiError } from '~/utils/pi/piClient'
 import { rehearsalPlayheadMs, skippedMotorText, type RehearsalRange } from '~/utils/pi/rehearse'
 
-// «Prova a la Raspberry»: the connected Pi plays the range Inici → Fi (looping with «Repeteix») of
-// the show exactly as it is in the editor now, starting with everything as it would be at Inici.
-// While it plays, the playhead follows the Pi. Pressing again (or Ctrl+Enter) sends the latest edits.
+// «Prova»: the chosen device plays the range Inici → Fi (looping with «Repeteix») of the show exactly
+// as it is in the editor now, starting with everything as it would be at Inici. While it plays, the
+// playhead follows it. Pressing again (or Ctrl+Enter) sends the latest edits. There may be several
+// belén players: the one rehearsing is the connected one, and the ▾ next to its name picks another.
 
 const pi = usePiStore()
+const devices = useDevicesStore()
 const playback = usePlaybackStore()
 const scene = useSceneStore()
 const { buildPackage, fetchAsset } = useShowPackageBuilder()
@@ -31,8 +34,56 @@ const label = computed(() => {
   if (phase.value === 'building') return 'Preparant…'
   if (phase.value === 'uploading') return 'Enviant àudio…'
   if (phase.value === 'starting') return 'Enviant…'
-  return rehearsal.value ? 'Torna a provar' : 'Prova a la Raspberry'
+  return rehearsal.value ? 'Torna a provar' : 'Prova'
 })
+
+/** Devices this laptop can reach by address (a registered-only one has none to rehearse on). */
+const choices = computed(() => devices.entries.filter(e => e.url))
+const targetName = computed(() => (pi.connected ? pi.info?.device.name ?? 'dispositiu' : null))
+
+function isTarget(e: DeviceEntry): boolean {
+  return pi.connected && !!e.deviceId && pi.info?.device.deviceId === e.deviceId
+}
+
+function onMenuOpen() {
+  void devices.loadRegistered(scene.orgSlug)
+  void devices.probeAll()
+}
+
+/** Whether a device answers now, waiting for the probe the menu started if it is still running. */
+async function answers(e: DeviceEntry): Promise<boolean> {
+  const current = () => devices.entries.find(d => d.key === e.key)?.reachable ?? null
+  if (current() === null) {
+    await devices.probeAll()
+    while (devices.probing) await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  return current() === true
+}
+
+/** Another device: the rehearsal on the current one ends (it goes back to its show) and it starts on the new one. */
+async function chooseDevice(e: DeviceEntry, close: () => void) {
+  close()
+  if (!isTarget(e)) {
+    error.value = null
+    issues.value = []
+    // Only leave the current one once the new one is known to answer (the menu probed them on opening).
+    if (!(await answers(e))) {
+      error.value = `«${e.name}» no respon.`
+      return
+    }
+    if (pi.rehearsal) await pi.endRehearsal()
+    if (!(await pi.connect(e.url!))) {
+      error.value = `No s’ha pogut connectar amb «${e.name}».`
+      return
+    }
+  }
+  await rehearse()
+}
+
+function otherDevice(close: () => void) {
+  close()
+  pi.requestPanel()
+}
 
 const summary = computed(() => {
   const r = rehearsal.value
@@ -130,7 +181,7 @@ onBeforeUnmount(() => {
       :class="rehearsal ? 'btn-primary' : ''"
       :disabled="busy"
       :aria-busy="busy"
-      :title="`La Raspberry toca d'Inici a Fi (${fmt(playback.rangeStartMs)} → ${fmt(playback.endMs)})${playback.loop ? ' en bucle' : ''} amb el show tal com està ara (Ctrl+Enter)`"
+      :title="`${targetName ? `«${targetName}»` : 'El dispositiu'} toca d'Inici a Fi (${fmt(playback.rangeStartMs)} → ${fmt(playback.endMs)})${playback.loop ? ' en bucle' : ''} amb el show tal com està ara (Ctrl+Enter)`"
       @click="rehearse()">
       <svg class="mr-1 h-3.5 w-3.5" viewBox="0 0 24 24" aria-hidden="true">
         <rect x="3" y="4" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2" />
@@ -139,12 +190,47 @@ onBeforeUnmount(() => {
       </svg>
       {{ label }}
     </button>
+    <EditorToolbarMenu label="Dispositiu de l'assaig" :width="300" title="On es prova: tria el dispositiu" @open="onMenuOpen">
+      <template #trigger>
+        <span class="max-w-[140px] truncate text-[12px]" :class="targetName ? 'text-ink' : 'text-ink-muted'">{{ targetName ?? 'Tria dispositiu' }}</span>
+      </template>
+      <template #default="{ close }">
+        <div class="menu-heading flex items-center gap-2">
+          <span class="label">Prova a</span>
+          <span v-if="devices.probing" class="text-[12px] leading-4 text-ink-muted">comprovant…</span>
+        </div>
+        <p v-if="!choices.length" class="px-3 py-2 text-[13px] leading-[18px] text-ink-soft">
+          Encara no t’has connectat a cap dispositiu des d’aquest ordinador.
+        </p>
+        <button
+          v-for="e in choices" :key="e.key"
+          type="button" role="menuitem" class="menu-item"
+          :disabled="busy"
+          @click="chooseDevice(e, close)">
+          <span class="mt-[5px] h-2 w-2 flex-shrink-0 rounded-full" :class="isTarget(e) || e.reachable ? 'bg-ok' : 'bg-line-strong'" aria-hidden="true" />
+          <span class="min-w-0 flex-1">
+            <span class="flex items-center gap-2">
+              <span class="truncate font-medium">{{ e.name }}</span>
+              <span v-if="isTarget(e)" class="badge badge-brand ml-auto flex-shrink-0">{{ rehearsal ? 'assajant' : 'triat' }}</span>
+            </span>
+            <span class="menu-hint truncate">{{ e.url!.replace(/^https?:\/\//, '') }} · {{ isTarget(e) ? 'connectat' : e.reachable === null ? 'comprovant…' : e.reachable ? 'a l’abast' : 'no respon' }}</span>
+          </span>
+        </button>
+        <div class="menu-sep" role="separator" />
+        <button type="button" role="menuitem" class="menu-item" @click="otherDevice(close)">
+          <span>
+            Connecta un altre dispositiu…
+            <span class="menu-hint">Per adreça: belen.local, 10.42.0.1…</span>
+          </span>
+        </button>
+      </template>
+    </EditorToolbarMenu>
     <button
       v-if="rehearsal"
       type="button"
       class="btn btn-quiet !h-[30px] !px-2 !text-[12px]"
       :disabled="busy || pi.busyCommand === 'rehearsal'"
-      title="Surt de l'assaig: la Raspberry torna al seu show actiu"
+      title="Surt de l'assaig: el dispositiu torna al seu show actiu"
       @click="endRehearsal()">
       Surt
     </button>
@@ -152,7 +238,7 @@ onBeforeUnmount(() => {
     <span v-else-if="error" class="max-w-[240px] truncate text-[12px] text-danger" role="alert" :title="[error, ...issues.map(i => i.message)].join('\n')">
       {{ error }}<template v-if="issues.length"> {{ issues[0]!.message }}</template>
     </span>
-    <span v-else-if="summary" class="flex items-center gap-1.5 whitespace-nowrap text-[12px] text-ink-soft" :title="[`Assaig a «${pi.info?.device.name ?? 'Raspberry'}»: ${summary}`, ...skippedText].join('\n')">
+    <span v-else-if="summary" class="flex items-center gap-1.5 whitespace-nowrap text-[12px] text-ink-soft" :title="[`Assaig a «${targetName ?? 'dispositiu'}»: ${summary}`, ...skippedText].join('\n')">
       <span class="h-2 w-2 rounded-full" :class="playingOnPi ? 'bg-ok' : 'bg-line-strong'" aria-hidden="true" />
       {{ summary }}<span v-if="skippedText.length" class="text-warn">· {{ skippedText.length === 1 ? '1 motor quiet' : `${skippedText.length} motors quiets` }}</span>
     </span>
