@@ -4,9 +4,9 @@ import { normalizeRangeEnd, rangeEndOf } from '~/utils/playRange'
 
 /**
  * Drives the playhead (a requestAnimationFrame loop) and exposes which clip is active per track at
- * the current time. Playback runs within the range [rangeStartMs, rangeEndMs ?? scene.durationMs];
- * «Fins» (`rangeEndMs`) is the end of that range, «Fin» the scene duration. The same range is what
- * «Prova a la Raspberry» rehearses. Visual effects are derived in the canvas; this store owns the clock.
+ * the current time. Playback runs within the range «Inici» → «Fi» ([rangeStartMs, rangeEndMs ??
+ * scene.durationMs], the show lasting until its last clip ends); the same range is what «Prova a la
+ * Raspberry» rehearses. Visual effects are derived in the canvas; this store owns the clock.
  */
 export const usePlaybackStore = defineStore('playback', () => {
   const scene = useSceneStore()
@@ -24,7 +24,7 @@ export const usePlaybackStore = defineStore('playback', () => {
   let rafId: number | null = null
   let lastTs = 0
 
-  /** Where playback stops (or loops): «Fins», kept inside the scene. */
+  /** Where playback stops (or loops): «Fi», kept inside the show. */
   const endMs = computed(() => rangeEndOf(rangeEndMs.value, rangeStartMs.value, scene.durationMs))
 
   function tick(ts: number) {
@@ -81,7 +81,7 @@ export const usePlaybackStore = defineStore('playback', () => {
     if (currentMs.value < rangeStartMs.value) currentMs.value = rangeStartMs.value
   }
 
-  /** «Fins»: null, the end of the scene or anything not after «Inicio» clears it. */
+  /** «Fi»: null, the end of the show or anything not after «Inici» clears it. */
   function setRangeEnd(ms: number | null) {
     rangeEndMs.value = normalizeRangeEnd(ms, rangeStartMs.value, scene.durationMs)
   }

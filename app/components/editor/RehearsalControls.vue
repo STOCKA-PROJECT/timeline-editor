@@ -3,8 +3,8 @@ import type { ShowIssue } from '~/types/show'
 import { PiApiError } from '~/utils/pi/piClient'
 import { rehearsalPlayheadMs, skippedMotorText, type RehearsalRange } from '~/utils/pi/rehearse'
 
-// «Prova a la Raspberry»: the connected Pi plays the range Inicio → Fins (looping with «Repetir") of
-// the show exactly as it is in the editor now, starting with everything as it would be at Inicio.
+// «Prova a la Raspberry»: the connected Pi plays the range Inici → Fi (looping with «Repeteix») of
+// the show exactly as it is in the editor now, starting with everything as it would be at Inici.
 // While it plays, the playhead follows the Pi. Pressing again (or Ctrl+Enter) sends the latest edits.
 
 const pi = usePiStore()
@@ -37,8 +37,8 @@ const label = computed(() => {
 const summary = computed(() => {
   const r = rehearsal.value
   if (!r) return ''
-  const parts = [`Assaig a «${pi.info?.device.name ?? 'Raspberry'}» · ${fmt(r.fromMs)} → ${fmt(r.toMs)}`]
-  if (r.loop) parts.push('en bucle')
+  const parts = [`${fmt(r.fromMs)} → ${fmt(r.toMs)}`]
+  if (r.loop) parts.push('bucle')
   if (!playingOnPi.value) parts.push('aturat')
   return parts.join(' · ')
 })
@@ -52,18 +52,13 @@ async function rehearse() {
   if (busy.value) return
   error.value = null
   issues.value = []
-  if (!pi.connected && !(await pi.autoConnect())) {
-    error.value = 'Connecta’t a la Raspberry des de «Dispositius».'
-    pi.requestPanel()
-    return
-  }
-  if (!pi.pin || !pi.pinVerified) {
-    error.value = 'Cal el PIN de la Raspberry: entra’l a «Dispositius».'
+  // Without a Pi or its PIN the «Dispositiu» panel opens: that is the message.
+  if ((!pi.connected && !(await pi.autoConnect())) || !pi.pin || !pi.pinVerified) {
     pi.requestPanel()
     return
   }
   if (playback.rangeStartMs >= scene.durationMs) {
-    error.value = 'L’inici és al final del show: posa’l abans.'
+    error.value = 'L’inici és després del darrer clip.'
     return
   }
   playback.pause()
@@ -128,13 +123,14 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="flex min-w-0 items-center gap-2">
+  <div class="flex min-w-0 items-center gap-2 border-l border-line pl-3">
     <button
       type="button"
-      class="btn btn-primary !h-8 !px-2.5 !text-[12px]"
+      class="btn !h-[30px] !px-2.5 !text-[12px]"
+      :class="rehearsal ? 'btn-primary' : ''"
       :disabled="busy"
       :aria-busy="busy"
-      :title="`La Raspberry toca de ${fmt(playback.rangeStartMs)} a ${playback.rangeEndMs === null ? 'final' : fmt(playback.rangeEndMs)}${playback.loop ? ' en bucle' : ''}, amb el show tal com està ara (Ctrl+Enter)`"
+      :title="`La Raspberry toca d'Inici a Fi (${fmt(playback.rangeStartMs)} → ${fmt(playback.endMs)})${playback.loop ? ' en bucle' : ''} amb el show tal com està ara (Ctrl+Enter)`"
       @click="rehearse()">
       <svg class="mr-1 h-3.5 w-3.5" viewBox="0 0 24 24" aria-hidden="true">
         <rect x="3" y="4" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2" />
@@ -146,18 +142,19 @@ onBeforeUnmount(() => {
     <button
       v-if="rehearsal"
       type="button"
-      class="btn !h-8 !px-2.5 !text-[12px]"
+      class="btn btn-quiet !h-[30px] !px-2 !text-[12px]"
       :disabled="busy || pi.busyCommand === 'rehearsal'"
-      title="La Raspberry torna al seu show actiu"
+      title="Surt de l'assaig: la Raspberry torna al seu show actiu"
       @click="endRehearsal()">
-      Surt de l’assaig
+      Surt
     </button>
     <span v-if="uploading" class="truncate text-[12px] text-ink-soft" :title="uploading">{{ uploading }}</span>
-    <span v-else-if="error" class="max-w-[360px] truncate text-[12px] text-danger" role="alert" :title="[error, ...issues.map(i => i.message)].join('\n')">
+    <span v-else-if="error" class="max-w-[240px] truncate text-[12px] text-danger" role="alert" :title="[error, ...issues.map(i => i.message)].join('\n')">
       {{ error }}<template v-if="issues.length"> {{ issues[0]!.message }}</template>
     </span>
-    <span v-else-if="summary" class="max-w-[360px] truncate text-[12px] text-ink-soft" :title="[summary, ...skippedText].join('\n')">
-      {{ summary }}<template v-if="skippedText.length"> · <span class="text-warn">{{ skippedText.length === 1 ? '1 motor no es mou' : `${skippedText.length} motors no es mouen` }}</span></template>
+    <span v-else-if="summary" class="flex items-center gap-1.5 whitespace-nowrap text-[12px] text-ink-soft" :title="[`Assaig a «${pi.info?.device.name ?? 'Raspberry'}»: ${summary}`, ...skippedText].join('\n')">
+      <span class="h-2 w-2 rounded-full" :class="playingOnPi ? 'bg-ok' : 'bg-line-strong'" aria-hidden="true" />
+      {{ summary }}<span v-if="skippedText.length" class="text-warn">· {{ skippedText.length === 1 ? '1 motor quiet' : `${skippedText.length} motors quiets` }}</span>
     </span>
   </div>
 </template>

@@ -14,6 +14,7 @@ import {
   type SceneTrack
 } from '~/types/editor'
 import { nextId } from '~/utils/ids'
+import { endOfLastClip } from '~/utils/playRange'
 import { cachedRequest } from '~/utils/offline/cachedRequest'
 import type { KvStore } from '~/utils/offline/kvStore'
 import {
@@ -51,7 +52,13 @@ export const useSceneStore = defineStore('scene', () => {
   const items = ref<SceneItem[]>([])
   const tracks = ref<SceneTrack[]>([])
   const clips = ref<SceneClip[]>([])
-  const durationMs = ref(60000)
+  /** Length of the show while it has no clips: the last one it had (or the document's). */
+  const emptyDurationMs = ref(60000)
+  /** The show lasts until the end of its last clip (there is no length to type, as in the backend). */
+  const durationMs = computed(() => endOfLastClip(clips.value) ?? emptyDurationMs.value)
+  watch(durationMs, (ms) => {
+    if (clips.value.length) emptyDurationMs.value = ms
+  })
   const fps = ref(30)
   const stripOrder = ref<Record<string, string[]>>({})
   /** When the physical button starts the show (`mode.schedule`); null = always. */
@@ -120,7 +127,7 @@ export const useSceneStore = defineStore('scene', () => {
     items.value = doc.items ?? []
     tracks.value = doc.tracks ?? []
     clips.value = doc.clips ?? []
-    durationMs.value = doc.durationMs ?? base.durationMs
+    emptyDurationMs.value = endOfLastClip(clips.value) ?? doc.durationMs ?? base.durationMs
     fps.value = doc.fps ?? base.fps ?? 30
     stripOrder.value = doc.stripOrder ?? {}
     schedule.value = doc.schedule ?? null
@@ -390,12 +397,6 @@ export const useSceneStore = defineStore('scene', () => {
     touch()
   }
 
-  // ----- timeline duration ("Fin") -----
-  function setDurationMs(ms: number) {
-    durationMs.value = Math.max(1000, Math.round(ms))
-    touch()
-  }
-
   // ----- button schedule -----
   function setSchedule(next: ButtonSchedule | null) {
     schedule.value = next ? cleanSchedule(next) : null
@@ -610,7 +611,6 @@ export const useSceneStore = defineStore('scene', () => {
     load,
     save,
     setBoard,
-    setDurationMs,
     setSchedule,
     addLayer,
     updateLayer,

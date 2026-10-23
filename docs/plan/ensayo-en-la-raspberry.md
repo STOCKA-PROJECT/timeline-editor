@@ -10,6 +10,11 @@ audio (409), subida suelta, tramo en bucle a 4 mensajes por segundo, motor corta
 navegador ni con hardware. Diferencias con lo planteado: el registro de la Pi dice el instante del show (`showT`) y el
 tramo se marca en la regla del timeline.
 
+**Cambio del 23 de octubre (tarde):** a petición de Joan la barra de transporte queda en una sola fila con solo
+«Inici» y «Fi» (en `m:ss`; «Fi» vacío = hasta el final del último clip) y desaparecen «Fin» y «Puntero». La duración
+del show ya no se escribe: es siempre el final de su último clip, en el editor (`scene.durationMs` calculada) y en el
+backend (`SceneDocument` la deriva; se elimina la operación `set_duration`).
+
 ## 1. Objetivo
 
 Joan edita una animación de LEDs en el minuto 5:15. Hoy, para verla en el belén, tiene que enviar el show, activarlo y
@@ -98,11 +103,11 @@ a los 15 min, 409 de las demás órdenes), API (PIN, 422, 409 `missing_assets`, 
 
 ## 3. Editor (`timeline-editor`)
 
-- **Marca «Fins»** en `PlaybackControls`, junto a «Inicio»: `playback.rangeEndMs` (por defecto el final). La vista previa
+- **Marca «Fi»** en `PlaybackControls`, junto a «Inici»: `playback.rangeEndMs` (vacía = el final del último clip). La vista previa
   local también la respeta en bucle. No confundir con «Fin», que es la duración de la escena.
 - **Botón «Prova a la Raspberry»** en los mismos controles. Sin una Pi conectada abre «Dispositius». Al pulsarlo:
   construye el paquete de la escena tal como está (no hace falta guardar antes), sube los audios que falten con
-  `PUT /api/assets/audio/{name}` y llama a `POST /api/rehearsal` con Inicio, Fins y Repetir. Si el show tiene errores, no
+  `PUT /api/assets/audio/{name}` y llama a `POST /api/rehearsal` con Inici, Fi y Repetir. Si el show tiene errores, no
   envía nada y los enseña.
 - Con el ensayo en marcha, el botón pasa a **«Torna a provar»** (atajo Ctrl+Enter) y aparece **«Surt de l'assaig»**. El
   cabezal sigue el `cycleMs` de la Pi (interpolado entre mensajes), la vista previa local queda en silencio y una línea
@@ -117,7 +122,7 @@ Solo informativo: una fila «En assaig des de l'editor (5:10 → 5:40)» y un bo
 ## 5. Orden y despliegue
 
 1. Pi: `catch_up` + tests, regla de motores, `load_from_package`, API, `offset` en las animaciones.
-2. Editor: marca «Fins», cliente, botón y seguimiento del cabezal.
+2. Editor: marca «Fi», cliente, botón y seguimiento del cabezal.
 3. Página de la Pi y app.
 
 No cambia el contrato del paquete ni el hash, ni el backend. Desplegar primero la Pi (un editor nuevo con una Pi vieja

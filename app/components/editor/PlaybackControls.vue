@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import { formatTimeInput, parseTimeInput } from '~/utils/playRange'
+
+// Transport of the timeline, in one row: play controls, where the playhead is, and the range
+// «Inici» → «Fi» that playback loops over and «Prova a la Raspberry» rehearses. «Fi» empty = the end
+// of the last clip (the show lasts exactly that, there is no length to type).
+
 const playback = usePlaybackStore()
 const scene = useSceneStore()
 
@@ -10,21 +16,23 @@ function fmt(ms: number): string {
   return `${m}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`
 }
 
-const toSec = (ms: number) => (ms / 1000)
-function num(e: Event) { return Number((e.target as HTMLInputElement).value) }
-/** «Fins» left empty (or not after «Inicio») means the end of the show. */
-function onRangeEnd(e: Event) {
+/** A time field accepts `5:15`, `5:15.5` or seconds; anything else puts back what it had. */
+function onTime(e: Event, set: (ms: number | null) => void, shown: () => string) {
   const input = e.target as HTMLInputElement
-  playback.setRangeEnd(input.value.trim() === '' ? null : Number(input.value) * 1000)
-  input.value = playback.rangeEndMs === null ? '' : toSec(playback.rangeEndMs).toFixed(2)
+  const ms = parseTimeInput(input.value)
+  if (ms !== undefined) set(ms)
+  input.value = shown()
 }
+
+const startText = () => formatTimeInput(playback.rangeStartMs)
+const endText = () => (playback.rangeEndMs === null ? '' : formatTimeInput(playback.rangeEndMs))
+const setStart = (ms: number | null) => playback.setRangeStart(ms ?? 0)
 </script>
 
 <template>
-  <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-    <!-- Transport buttons -->
-    <div class="flex items-center gap-1.5">
-      <button class="tbtn" title="Volver al inicio" @click="playback.stop()">
+  <div class="flex items-center gap-3">
+    <div class="flex items-center gap-1">
+      <button class="tbtn" title="Torna a l'inici" @click="playback.stop()">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M6 5v14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
           <path d="M19 5.5 9.5 12 19 18.5z" fill="currentColor" />
@@ -33,7 +41,7 @@ function onRangeEnd(e: Event) {
 
       <button
         class="tbtn tbtn-play"
-        :title="playback.playing ? 'Pausa' : 'Reproducir'"
+        :title="playback.playing ? 'Pausa (vista prèvia)' : 'Reprodueix la vista prèvia'"
         @click="playback.toggle()">
         <svg v-if="!playback.playing" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M8 5.5v13l11-6.5z" fill="currentColor" />
@@ -47,7 +55,7 @@ function onRangeEnd(e: Event) {
       <button
         class="tbtn"
         :class="{ 'is-active': playback.loop }"
-        title="Repetir"
+        :title="playback.loop ? 'En bucle: Inici → Fi es repeteix' : 'Repeteix Inici → Fi'"
         @click="playback.toggleLoop()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -89,52 +97,29 @@ function onRangeEnd(e: Event) {
           <path d="M8.5 15a6 6 0 1 1 7 0c-.8.6-1.2 1.2-1.5 2h-4c-.3-.8-.7-1.4-1.5-2z" />
         </svg>
       </button>
-
-      <span class="ml-1 font-mono text-[12px] tabular-nums text-ink-soft">
-        {{ fmt(playback.currentMs) }} / {{ fmt(scene.durationMs) }}
-      </span>
     </div>
 
-    <!-- Second inputs -->
-    <div class="flex items-center gap-3 text-[12px] text-ink-soft">
-      <label class="flex items-center gap-1" title="Segundo de inicio de la reproducción">
-        Inicio
-        <input
-          class="field !h-8 !w-20 !px-2 font-mono tabular-nums"
-          type="number" min="0" step="0.1"
-          :value="toSec(playback.rangeStartMs).toFixed(2)"
-          @change="playback.setRangeStart(num($event) * 1000)">
-        <span class="text-ink-muted">s</span>
-      </label>
+    <span class="whitespace-nowrap font-mono text-[12px] tabular-nums text-ink-soft" title="Posició del capçal / durada del show (fins al darrer clip)">
+      {{ fmt(playback.currentMs) }} <span class="text-ink-muted">/ {{ fmt(scene.durationMs) }}</span>
+    </span>
 
-      <label class="flex items-center gap-1" title="Segon on s'acaba la reproducció i l'assaig a la Raspberry (buit: fins al final)">
-        Fins
+    <div class="flex items-center gap-2 border-l border-line pl-3 text-[12px] text-ink-soft">
+      <label class="flex items-center gap-1.5" title="On comença la reproducció i l'assaig (m:ss o segons)">
+        Inici
         <input
-          class="field !h-8 !w-20 !px-2 font-mono tabular-nums"
-          type="number" min="0" step="0.1" placeholder="final"
-          :value="playback.rangeEndMs === null ? '' : toSec(playback.rangeEndMs).toFixed(2)"
-          @change="onRangeEnd">
-        <span class="text-ink-muted">s</span>
+          class="field time-field"
+          type="text" inputmode="decimal" autocomplete="off"
+          :value="startText()"
+          @change="onTime($event, setStart, startText)">
       </label>
-
-      <label class="flex items-center gap-1" title="Segundo del puntero (posición actual)">
-        Puntero
+      <label class="flex items-center gap-1.5" title="On s'atura (m:ss o segons). Buit: fins al final del darrer clip">
+        Fi
         <input
-          class="field !h-8 !w-20 !px-2 font-mono tabular-nums"
-          type="number" min="0" step="0.1"
-          :value="toSec(playback.currentMs).toFixed(2)"
-          @change="playback.seek(num($event) * 1000)">
-        <span class="text-ink-muted">s</span>
-      </label>
-
-      <label class="flex items-center gap-1" title="Segundo final de la línea de tiempo (duración)">
-        Fin
-        <input
-          class="field !h-8 !w-20 !px-2 font-mono tabular-nums"
-          type="number" min="1" step="0.1"
-          :value="toSec(scene.durationMs).toFixed(2)"
-          @change="scene.setDurationMs(num($event) * 1000)">
-        <span class="text-ink-muted">s</span>
+          class="field time-field"
+          type="text" inputmode="decimal" autocomplete="off"
+          :placeholder="formatTimeInput(scene.durationMs)"
+          :value="endText()"
+          @change="onTime($event, playback.setRangeEnd, endText)">
       </label>
     </div>
   </div>
@@ -145,9 +130,9 @@ function onRangeEnd(e: Event) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
   border: 1px solid var(--c-line);
   background: var(--c-bg-card);
   color: var(--c-ink-soft);
@@ -158,7 +143,7 @@ function onRangeEnd(e: Event) {
   color: var(--c-ink);
 }
 .tbtn:active { transform: scale(0.94); }
-.tbtn svg { width: 17px; height: 17px; }
+.tbtn svg { width: 16px; height: 16px; }
 
 .tbtn.is-active {
   border-color: var(--c-accent);
@@ -167,9 +152,9 @@ function onRangeEnd(e: Event) {
 }
 
 .tbtn-play {
-  width: 40px;
-  height: 40px;
-  border-radius: 11px;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
   background: var(--c-accent);
   border-color: var(--c-accent);
   color: #fff;
@@ -179,5 +164,14 @@ function onRangeEnd(e: Event) {
   background: color-mix(in oklab, var(--c-accent) 88%, black);
   color: #fff;
 }
-.tbtn-play svg { width: 19px; height: 19px; }
+.tbtn-play svg { width: 18px; height: 18px; }
+
+.time-field {
+  height: 28px !important;
+  width: 64px !important;
+  padding: 0 8px !important;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
 </style>
