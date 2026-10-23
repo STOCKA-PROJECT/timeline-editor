@@ -146,7 +146,7 @@ Escrita una vez para que la vista previa del editor y la RPi hagan lo mismo:
 - `fill` es instantáneo. `fade` interpola linealmente en RGB desde el color actual hasta `color` durante `duration` segundos. `animate` corre hasta que otro evento sobre el mismo `target` la sustituye o hasta `duration` si se indica.
 - Dos eventos sobre el mismo `target` se aplican en orden de `t`; a igual `t`, en orden de lista. El editor garantiza ese orden al exportar.
 - `turn_on` con `time` apaga solo a los `time` segundos. Sin `time`, queda encendido hasta un `turn_off`.
-- El ciclo termina en `durationMs`. Al terminar, el reproductor espera a que acaben los procesos en marcha (motor, audio) y pasa a reposo. El estado de reposo es "todo apagado" hasta que exista el evento `idle` (fase 5).
+- El ciclo termina en `durationMs`. Al terminar, el reproductor espera a que acaben los procesos en marcha (motor, audio) y pasa a reposo. El estado de reposo es siempre "todo apagado" (el evento `idle` se descartó el 23 de octubre).
 
 ### 4.4 Validaciones del paquete
 
@@ -307,7 +307,7 @@ No bloquea las fases 1 a 3. Lo único realmente nuevo es el expansor de relés.
 
 - [ ] Modo prueba completo: activar o regular cualquier `target` por nombre, elegir color en un segmento, mover el ángel manteniendo la orden (caduca a los 500 ms). Toda orden caduca a los 60 s.
 - [ ] **Identificar**: `belen identify Sembra` enciende tres segundos esa salida para saber qué pieza responde tras cablear.
-- [ ] Evento `idle` en el paquete: estado de reposo entre pases (por ejemplo casas tenues).
+- [x] ~~Evento `idle` en el paquete~~: **descartado (23 de octubre)**. Al acabar la línea de tiempo todo queda apagado.
 - [ ] Vigilancia: watchdog de systemd y reinicio automático; `panic` por pulsación larga del botón físico.
 - [ ] Calibración del foco desde la CLI: posición y radio arriba y abajo.
 - [ ] Horario opcional: horas en las que el belén atiende el pulsador.
