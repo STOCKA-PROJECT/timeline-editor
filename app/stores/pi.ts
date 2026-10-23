@@ -4,7 +4,6 @@ import { DEFAULT_PI_URLS, normalizePiUrl, PiApiError, PiClient, type PiInfo, typ
 import { sendShowToPi, type SendPhase, type SendShowResult } from '~/utils/pi/sendShow'
 
 const URL_KEY = 'stocka.pi.url'
-const PIN_KEY = 'stocka.pi.pin'
 /** How often the log is refreshed while the panel shows it. */
 export const PI_LOG_POLL_MS = 2000
 export const PI_LOG_LINES = 300
@@ -32,13 +31,16 @@ function message(error: unknown, fallback: string): string {
 }
 
 /**
- * The belén Raspberry Pi as seen from the installed editor: where it is on the local network, the
- * PIN for commands (kept for the browser session only), its live status, its log, and sending the
- * open show to it. Works without Internet: only the laptop and the Pi on the same network.
+ * The belén Raspberry Pi the editor is connected to (one at a time; `useDevicesStore` lists all of
+ * them): where it is on the local network, its PIN for commands (per device, for the browser session
+ * only), its live status, its log, and sending the open show to it. Works without Internet: only the
+ * laptop and the Pi on the same network.
  */
 export const usePiStore = defineStore('pi', () => {
   const url = ref<string>(readStorage('local', URL_KEY) ?? DEFAULT_PI_URLS[0])
-  const pin = ref<string | null>(readStorage('session', PIN_KEY))
+  const devices = useDevicesStore()
+  /** PIN of the connected device. */
+  const pin = ref<string | null>(null)
   const pinVerified = ref(false)
   const info = ref<PiInfo | null>(null)
   const status = ref<PiStatus | null>(null)
@@ -71,7 +73,7 @@ export const usePiStore = defineStore('pi', () => {
   }
 
   function newClient(address: string): PiClient {
-    return new PiClient(address, { pin: pin.value, name: actorName() })
+    return new PiClient(address, { name: actorName() })
   }
 
   function disconnect() {
@@ -108,6 +110,10 @@ export const usePiStore = defineStore('pi', () => {
       info.value = i
       url.value = c.baseUrl
       writeStorage('local', URL_KEY, c.baseUrl)
+      devices.remember(i, c.baseUrl)
+      pin.value = devices.pinFor(i.device.deviceId)
+      c.pin = pin.value
+      pinVerified.value = false
       status.value = await c.status().catch(() => null)
       stopWatch = c.watch((s) => {
         status.value = s
@@ -153,7 +159,7 @@ export const usePiStore = defineStore('pi', () => {
       pin.value = trimmed
       client.pin = trimmed
       pinVerified.value = true
-      writeStorage('session', PIN_KEY, trimmed)
+      if (info.value) devices.setPin(info.value.device.deviceId, trimmed)
       return true
     } catch (e) {
       error.value = message(e, 'No s’ha pogut comprovar el PIN.')
@@ -165,7 +171,7 @@ export const usePiStore = defineStore('pi', () => {
     pin.value = null
     pinVerified.value = false
     if (client) client.pin = null
-    writeStorage('session', PIN_KEY, null)
+    if (info.value) devices.setPin(info.value.device.deviceId, null)
   }
 
   async function refreshLogs() {

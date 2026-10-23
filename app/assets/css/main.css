@@ -191,4 +191,14 @@
   .panel-title { @apply px-3 py-2; }
   .shadow-raised { box-shadow: var(--shadow-raised); }
   .shadow-overlay { box-shadow: var(--shadow-overlay); }
+
+  /* Dropdown menu of the toolbar (ToolbarMenu): items, hints, groups and separators. */
+  .menu-item {
+    @apply flex w-full items-start gap-2 px-3 py-1.5 text-left text-[13px] leading-[18px] text-ink transition-colors;
+  }
+  .menu-item:hover:not(:disabled), .menu-item:focus-visible { @apply bg-bg-soft; outline: none; }
+  .menu-item:disabled { color: var(--c-ink-muted); cursor: not-allowed; }
+  .menu-hint { @apply block text-[12px] leading-4 text-ink-muted; }
+  .menu-heading { @apply px-3 pb-1 pt-2; }
+  .menu-sep { @apply my-1 border-t border-line; }
 }

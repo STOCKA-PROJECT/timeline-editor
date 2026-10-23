@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ShowIssue } from '~/types/show'
+import type { DeviceEntry } from '~/utils/pi/deviceRegistry'
 import { scheduleSummary } from '~/utils/schedule'
 
 const scene = useSceneStore()
@@ -31,9 +32,24 @@ const saveTone = computed(() => {
   return 'text-ink-muted'
 })
 
-// ----- Raspberry (local network) -----
+// ----- devices (the belén Raspberry Pis on the local network) -----
 const pi = usePiStore()
+const devices = useDevicesStore()
 const piOpen = ref(false)
+/** How the panel opens: on a device of the list, empty to type an address, or reconnecting the last one. */
+const piStart = ref<{ url?: string, manual?: boolean }>({})
+const sendManyOpen = ref(false)
+
+function openDevice(entry: DeviceEntry) {
+  const already = pi.connected && pi.info?.device.deviceId === entry.deviceId
+  piStart.value = entry.url && !already ? { url: entry.url } : { manual: !entry.url && !already }
+  piOpen.value = true
+}
+
+function newDevice() {
+  piStart.value = { manual: true }
+  piOpen.value = true
+}
 
 // ----- button schedule -----
 const scheduleOpen = ref(false)
@@ -164,87 +180,110 @@ const statusTone = computed(() => {
 
 <template>
   <header
-    class="relative flex h-[var(--topbar-h)] flex-shrink-0 items-center gap-3 border-b border-line-strong bg-bg-card px-3">
-    <span class="truncate font-display text-[15px] font-semibold leading-5 text-ink" :title="scene.timelineName">
+    class="relative flex h-[var(--topbar-h)] flex-shrink-0 items-center gap-2 border-b border-line-strong bg-bg-card px-3">
+    <span class="max-w-60 truncate font-display text-[15px] font-semibold leading-5 text-ink" :title="scene.timelineName">
       {{ scene.timelineName || 'Timeline' }}
     </span>
 
     <div class="mx-1 h-5 w-px bg-line-strong" />
 
-    <!-- Board dimensions (in centimetres) -->
-    <span class="label">Tauler</span>
-    <label class="flex items-center gap-1 text-[12px] leading-4 text-ink-soft">
-      Amplada (cm)
-      <input
-        type="number" min="1" step="0.1" class="field field-sm field-code !w-20"
-        :value="scene.pxToCm(scene.board.width)"
-        @change="scene.setBoard({ width: scene.cmToPx(Math.max(1, Number(($event.target as HTMLInputElement).value))) })">
-    </label>
-    <label class="flex items-center gap-1 text-[12px] leading-4 text-ink-soft">
-      Alçada (cm)
-      <input
-        type="number" min="1" step="0.1" class="field field-sm field-code !w-20"
-        :value="scene.pxToCm(scene.board.height)"
-        @change="scene.setBoard({ height: scene.cmToPx(Math.max(1, Number(($event.target as HTMLInputElement).value))) })">
-    </label>
-
-    <div class="ml-auto flex items-center gap-2">
-      <div class="flex items-center gap-1">
-        <button
-          class="btn btn-sm !px-2 !text-[15px] leading-none"
-          :disabled="!scene.canUndo"
-          title="Desfer (Ctrl+Z)" aria-label="Desfer"
-          @click="scene.undo()">↶</button>
-        <button
-          class="btn btn-sm !px-2 !text-[15px] leading-none"
-          :disabled="!scene.canRedo"
-          title="Refer (Ctrl+Maj+Z)" aria-label="Refer"
-          @click="scene.redo()">↷</button>
-      </div>
-      <div class="h-5 w-px bg-line-strong" />
-      <div class="flex items-center gap-1">
-        <button
-          class="btn btn-sm btn-quiet inline-flex items-center gap-1.5"
-          :title="`Horari del polsador: ${scheduleSummary(scene.schedule)}`"
-          @click="scheduleOpen = true">
-          <span v-if="scene.schedule" class="h-2 w-2 rounded-full bg-accent" aria-hidden="true" />
-          Horari
+    <!-- Fitxer: what leaves or enters the editor as a file -->
+    <EditorToolbarMenu label="Fitxer" :width="320">
+      <template #default="{ close }">
+        <button type="button" role="menuitem" class="menu-item" :disabled="exporting" @click="close(); exportShow()">
+          <span>
+            Exporta el show
+            <span class="menu-hint">Fitxer .show.json per al reproductor del pessebre</span>
+          </span>
         </button>
-        <button
-          class="btn btn-sm" :disabled="exporting"
-          title="Genera el paquet de show (.show.json) per al reproductor del pessebre"
-          @click="exportShow()">{{ exporting ? 'Exportant…' : 'Exportar show' }}</button>
-        <button
-          class="btn btn-sm" :disabled="exporting || bundleOpen"
-          title="Genera el paquet autocontingut (.belen.zip) amb el show i els seus fitxers d'àudio, per portar-lo a la Raspberry Pi del pessebre sense Internet"
-          @click="bundleOpen = true">Exportar paquet</button>
-        <button
-          class="btn btn-sm btn-quiet" :disabled="exporting"
-          title="Descarrega el document de l'editor per poder-lo importar més tard"
-          @click="exportBackup()">Còpia de seguretat</button>
-        <button class="btn btn-sm btn-quiet" title="Importa una còpia de seguretat (.json)" @click="importInput?.click()">Importar</button>
-        <input
-          ref="importInput" type="file" accept="application/json,.json" class="hidden"
-          @change="onImportFile">
-      </div>
+        <button type="button" role="menuitem" class="menu-item" :disabled="exporting || bundleOpen" @click="close(); bundleOpen = true">
+          <span>
+            Exporta el paquet
+            <span class="menu-hint">.belen.zip amb el show i els àudios, per portar-lo a la Raspberry sense Internet</span>
+          </span>
+        </button>
+        <div class="menu-sep" role="separator" />
+        <button type="button" role="menuitem" class="menu-item" :disabled="exporting" @click="close(); exportBackup()">
+          <span>
+            Descarrega una còpia de seguretat
+            <span class="menu-hint">El document de l’editor (.json), per importar-lo més tard</span>
+          </span>
+        </button>
+        <button type="button" role="menuitem" class="menu-item" @click="close(); importInput?.click()">
+          <span>
+            Importa una còpia de seguretat…
+            <span class="menu-hint">Substitueix l’escena oberta (es pot desfer)</span>
+          </span>
+        </button>
+      </template>
+    </EditorToolbarMenu>
+    <input ref="importInput" type="file" accept="application/json,.json" class="hidden" @change="onImportFile">
+
+    <!-- Show: settings of the whole show -->
+    <EditorToolbarMenu label="Show" :width="300">
+      <template #default="{ close }">
+        <div class="menu-heading label">Mida del tauler</div>
+        <div class="flex items-end gap-2 px-3 pb-2">
+          <label class="flex flex-1 flex-col gap-1 text-[12px] leading-4 text-ink-soft">
+            Amplada (cm)
+            <input
+              type="number" min="1" step="0.1" class="field field-sm field-code"
+              :value="scene.pxToCm(scene.board.width)"
+              @change="scene.setBoard({ width: scene.cmToPx(Math.max(1, Number(($event.target as HTMLInputElement).value))) })">
+          </label>
+          <label class="flex flex-1 flex-col gap-1 text-[12px] leading-4 text-ink-soft">
+            Alçada (cm)
+            <input
+              type="number" min="1" step="0.1" class="field field-sm field-code"
+              :value="scene.pxToCm(scene.board.height)"
+              @change="scene.setBoard({ height: scene.cmToPx(Math.max(1, Number(($event.target as HTMLInputElement).value))) })">
+          </label>
+        </div>
+        <div class="menu-sep" role="separator" />
+        <button type="button" role="menuitem" class="menu-item" @click="close(); scheduleOpen = true">
+          <span class="min-w-0">
+            Horari del polsador…
+            <span class="menu-hint truncate" :title="scheduleSummary(scene.schedule)">{{ scheduleSummary(scene.schedule) }}</span>
+          </span>
+        </button>
+      </template>
+    </EditorToolbarMenu>
+
+    <div class="mx-1 h-5 w-px bg-line-strong" />
+    <div class="flex items-center gap-1">
+      <button
+        class="btn btn-sm !px-2 !text-[15px] leading-none"
+        :disabled="!scene.canUndo"
+        title="Desfer (Ctrl+Z)" aria-label="Desfer"
+        @click="scene.undo()">↶</button>
+      <button
+        class="btn btn-sm !px-2 !text-[15px] leading-none"
+        :disabled="!scene.canRedo"
+        title="Refer (Ctrl+Maj+Z)" aria-label="Refer"
+        @click="scene.redo()">↷</button>
+    </div>
+
+    <div class="ml-auto flex min-w-0 items-center gap-2">
       <button
         v-if="statusText"
         class="max-w-64 truncate text-[12px] leading-4 underline-offset-2 hover:underline"
         :class="statusTone"
         :title="statusText"
         @click="issuesOpen = !issuesOpen">{{ statusText }}</button>
-      <div class="h-5 w-px bg-line-strong" />
       <span v-if="scene.offline" class="badge badge-warn" title="No es pot arribar a Stocka: els canvis es desen al portàtil">Sense connexió</span>
       <span class="max-w-72 truncate text-[12px] leading-4" :class="saveTone" :title="saveLabel">{{ saveLabel }}</span>
       <button class="btn btn-sm btn-primary" :disabled="scene.saving || !scene.dirty" @click="saveNow()">Desar</button>
       <div class="h-5 w-px bg-line-strong" />
-      <button
-        type="button" class="btn btn-sm inline-flex items-center gap-1.5"
-        title="Envia el show a la Raspberry del pessebre per la xarxa local, mira’n el registre i controla’l"
-        @click="piOpen = true">
-        <span class="h-2 w-2 rounded-full" :class="pi.connected ? 'bg-ok' : 'bg-line-strong'" aria-hidden="true" />
-        Raspberry
-      </button>
+      <EditorToolbarMenu label="Dispositius" align="right" :width="400" title="Les Raspberry on pots enviar aquest show">
+        <template #trigger>
+          <span class="h-2 w-2 rounded-full" :class="pi.connected ? 'bg-ok' : 'bg-line-strong'" aria-hidden="true" />
+          Dispositius
+          <span v-if="devices.entries.length" class="text-ink-muted">{{ devices.entries.length }}</span>
+        </template>
+        <template #default="{ close }">
+          <EditorDevicesMenu :close="close" @open-device="openDevice" @new-device="newDevice" @send-many="sendManyOpen = true" />
+        </template>
+      </EditorToolbarMenu>
       <a :href="exitUrl" class="btn btn-sm">Sortir</a>
     </div>
 
@@ -263,8 +302,9 @@ const statusTone = computed(() => {
       :file-name="issues.fileName"
       @close="issuesOpen = false" />
     <EditorBundleExportDialog v-if="bundleOpen" @close="bundleOpen = false" />
-    <EditorPiPanel v-if="piOpen" @close="piOpen = false" />
+    <EditorPiPanel v-if="piOpen" :connect-to="piStart.url" :manual="piStart.manual" @close="piOpen = false" />
     <EditorScheduleDialog v-if="scheduleOpen" @close="scheduleOpen = false" />
+    <EditorSendToDevicesDialog v-if="sendManyOpen" @close="sendManyOpen = false" />
     <EditorSyncConflictDialog v-if="scene.pendingMerge" />
   </header>
 </template>

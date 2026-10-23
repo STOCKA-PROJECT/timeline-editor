@@ -8,9 +8,16 @@ import { formatPiTime, scheduleSummary } from '~/utils/schedule'
 // (only what the Pi lacks travels), start or stop it, see its alerts and follow its log live. Needs
 // the laptop and the Pi on the same network (the phone's hotspot, or the Pi's own Wi-Fi), not Internet.
 
+const props = defineProps<{
+  /** Connect to this address on opening (a device chosen in «Dispositius»). */
+  connectTo?: string
+  /** Open without connecting, to type the address of another Pi. */
+  manual?: boolean
+}>()
 const emit = defineEmits<{ close: [] }>()
 
 const pi = usePiStore()
+const devices = useDevicesStore()
 const scene = useSceneStore()
 const { buildPackage, fetchAsset } = useShowPackageBuilder()
 
@@ -150,12 +157,28 @@ function onKey(e: KeyboardEvent) {
 
 onMounted(async () => {
   window.addEventListener('keydown', onKey)
-  if (pi.connected) pi.startLogs()
-  else if (await pi.autoConnect()) {
+  if (props.connectTo) {
+    pi.disconnect()
+    await connect(props.connectTo)
+  } else if (props.manual) {
+    pi.disconnect()
+    address.value = ''
+  } else if (pi.connected) {
+    pi.startLogs()
+  } else if (await pi.autoConnect()) {
     address.value = pi.url
     pi.startLogs()
   }
 })
+
+/** Removes the connected Pi from this laptop's list (it reappears on the next connection). */
+function forgetDevice() {
+  const id = pi.info?.device.deviceId
+  if (!id) return
+  pi.disconnect()
+  devices.forget(id)
+  address.value = ''
+}
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey)
   pi.stopLogs()
@@ -172,7 +195,7 @@ onBeforeUnmount(() => {
         aria-labelledby="pi-panel-title"
         @click.stop>
         <header class="flex items-center gap-3 border-b border-line-strong px-4 py-3">
-          <h2 id="pi-panel-title" class="font-display text-[15px] font-semibold leading-5 text-ink">Raspberry del pessebre</h2>
+          <h2 id="pi-panel-title" class="font-display text-[15px] font-semibold leading-5 text-ink">Dispositiu</h2>
           <span class="inline-flex items-center gap-1.5 text-[12px] leading-4 text-ink-soft">
             <span class="h-2 w-2 rounded-full" :class="pi.connected ? (pi.streaming ? 'bg-ok' : 'bg-warn') : 'bg-line-strong'" aria-hidden="true" />
             {{ pi.connected ? (pi.info?.device.name ?? 'Connectada') : (pi.connecting ? 'Connectant…' : 'Sense connexió') }}
@@ -191,10 +214,16 @@ onBeforeUnmount(() => {
             <div class="flex flex-wrap gap-1">
               <button v-for="u in DEFAULT_PI_URLS" :key="u" type="button" class="btn btn-sm btn-quiet font-mono !text-[12px]" @click="connect(u)">{{ u.replace('http://', '') }}</button>
             </div>
-            <p v-if="pi.connected && pi.info" class="text-[12px] leading-4 text-ink-soft">
-              {{ pi.info.device.name }} · versió <code class="font-mono">{{ pi.info.version }}</code> · contracte v{{ pi.info.catalogVersion }}
-              <span v-if="pi.info.simulate" class="badge badge-warn ml-1">simulada</span>
-            </p>
+            <div v-if="pi.connected && pi.info" class="flex items-center gap-2 text-[12px] leading-4 text-ink-soft">
+              <span class="min-w-0">
+                {{ pi.info.device.name }} · versió <code class="font-mono">{{ pi.info.version }}</code> · contracte v{{ pi.info.catalogVersion }}
+                <span v-if="pi.info.simulate" class="badge badge-warn ml-1">simulada</span>
+              </span>
+              <button
+                type="button" class="btn btn-sm btn-quiet ml-auto flex-shrink-0"
+                title="La treu de la llista de dispositius d’aquest ordinador (hi tornarà en connectar-t’hi)"
+                @click="forgetDevice()">Treu de la llista</button>
+            </div>
             <p v-else class="text-[12px] leading-4 text-ink-muted">
               El portàtil i la Raspberry han d’estar a la mateixa xarxa (el punt d’accés del mòbil o la Wi-Fi <strong>belen</strong>).
               La primera vegada Chrome demana permís per accedir a la xarxa local: accepta’l.
@@ -206,7 +235,7 @@ onBeforeUnmount(() => {
             <h3 id="pi-pin" class="label">PIN</h3>
             <div v-if="pi.pinVerified" class="flex items-center gap-2 text-[13px] leading-[18px] text-ink">
               <span class="badge badge-ok">PIN correcte</span>
-              <span class="text-ink-soft">es recorda fins que tanquis el navegador</span>
+              <span class="text-ink-soft">d’aquest dispositiu; es recorda fins que tanquis el navegador</span>
               <button type="button" class="btn btn-sm btn-quiet ml-auto" @click="pi.forgetPin()">Oblida’l</button>
             </div>
             <form v-else class="flex items-center gap-2" @submit.prevent="savePin()">
