@@ -310,7 +310,7 @@ No bloquea las fases 1 a 3. Lo único realmente nuevo es el expansor de relés.
 - [x] ~~Evento `idle` en el paquete~~: **descartado (23 de octubre)**. Al acabar la línea de tiempo todo queda apagado.
 - [ ] Vigilancia: watchdog de systemd y reinicio automático; `panic` por pulsación larga del botón físico.
 - [ ] Calibración del foco desde la CLI: posición y radio arriba y abajo.
-- [ ] Horario opcional: horas en las que el belén atiende el pulsador.
+- [ ] **Horario del pulsador (por hacer, pedido el 23 de octubre).** Opcional, en dos sentidos: franjas en las que el pulsador funciona (fuera de ellas no hace nada) o, a la inversa, franjas en las que **no** funciona; cada franja = días de la semana + hora de inicio y de fin.
 - [ ] Editor: vista previa fiel a la semántica 4.3 para `fill`, `fade`, `turn_on` con `time` y motor con tiempos medidos. Las animaciones se muestran como color medio.
 
 ### Fase 6 · Publicación desde la nube · 23 de noviembre – 6 de diciembre (o después de Navidad si aprieta)
