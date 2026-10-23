@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import type { TimelineResponseDto, TimelineSceneResponseDto } from '~/types/api'
+import type { ButtonSchedule } from '~/types/show'
 import {
   DEFAULT_ITEM_SIZE_CM,
   PX_PER_CM,
@@ -26,6 +27,7 @@ import {
   type SceneContext
 } from '~/utils/offline/sceneSync'
 import type { MergeResult, MergeSide } from '~/utils/sceneMerge'
+import { cleanSchedule } from '~/utils/schedule'
 import { orderItems } from '~/utils/stripLayout'
 
 /** Delay before an edit is also written to the laptop's copy (the server save waits longer). */
@@ -52,6 +54,8 @@ export const useSceneStore = defineStore('scene', () => {
   const durationMs = ref(60000)
   const fps = ref(30)
   const stripOrder = ref<Record<string, string[]>>({})
+  /** When the physical button starts the show (`mode.schedule`); null = always. */
+  const schedule = ref<ButtonSchedule | null>(null)
 
   const version = ref<number | null>(null)
   const loading = ref(false)
@@ -104,7 +108,8 @@ export const useSceneStore = defineStore('scene', () => {
       clips: clips.value,
       durationMs: durationMs.value,
       fps: fps.value,
-      stripOrder: stripOrder.value
+      stripOrder: stripOrder.value,
+      ...(schedule.value ? { schedule: schedule.value } : {})
     }
   }
 
@@ -118,6 +123,7 @@ export const useSceneStore = defineStore('scene', () => {
     durationMs.value = doc.durationMs ?? base.durationMs
     fps.value = doc.fps ?? base.fps ?? 30
     stripOrder.value = doc.stripOrder ?? {}
+    schedule.value = doc.schedule ?? null
   }
 
   function touch() {
@@ -390,6 +396,12 @@ export const useSceneStore = defineStore('scene', () => {
     touch()
   }
 
+  // ----- button schedule -----
+  function setSchedule(next: ButtonSchedule | null) {
+    schedule.value = next ? cleanSchedule(next) : null
+    touch()
+  }
+
   // ----- layers -----
   function addLayer(): SceneLayer {
     const z = layers.value.length ? Math.max(...layers.value.map(l => l.z)) + 1 : 0
@@ -565,6 +577,7 @@ export const useSceneStore = defineStore('scene', () => {
     durationMs,
     fps,
     stripOrder,
+    schedule,
     version,
     loading,
     saving,
@@ -598,6 +611,7 @@ export const useSceneStore = defineStore('scene', () => {
     save,
     setBoard,
     setDurationMs,
+    setSchedule,
     addLayer,
     updateLayer,
     removeLayer,

@@ -6,9 +6,30 @@ import type { OutputKind } from '~/types/catalog'
 export const SHOW_FORMAT = 'stocka-show'
 export const SHOW_VERSION = 3
 
+export type ScheduleDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
+
+/** One window of a button schedule: days of the week and local `HH:MM` times of the Pi (`to` may be `24:00`). */
+export interface ScheduleWindow {
+  days: ScheduleDay[]
+  from: string
+  /** Not after `from` = crosses midnight; the window belongs to the day it starts. */
+  to: string
+}
+
+/**
+ * When a short press of an `onActive: play` sensor starts the show (`mode.schedule`): `allow` only
+ * inside a window, `block` never inside one. Stop, panic and long presses always work.
+ */
+export interface ButtonSchedule {
+  rule: 'allow' | 'block'
+  windows: ScheduleWindow[]
+}
+
 export interface ShowMode {
   on: 'once' | 'loop' | 'pulse'
   cycles: number
+  /** Absent = the button always works. Part of the hash. */
+  schedule?: ButtonSchedule
 }
 
 /** One port as the device sees it: its kind, its pin when it has one, and its config keys. */

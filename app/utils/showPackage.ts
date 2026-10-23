@@ -224,7 +224,7 @@ export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPac
     format: SHOW_FORMAT,
     version: SHOW_VERSION,
     board: input.board ?? DEFAULT_BOARD,
-    mode: input.mode ?? DEFAULT_MODE,
+    mode: modeOf(input),
     hardware,
     timeline,
     durationMs: input.doc.durationMs,
@@ -232,6 +232,12 @@ export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPac
   }
   issues.push(...validateShowPackage({ ...body, meta: { name: '', timelineId: null, exportedAt: '', hash: '' } }, outputCatalog))
   return { body, issues, assetRefs: [...assetRefs.values()] }
+}
+
+/** The input's mode with the scene's button schedule, unless the mode already carries one (as the backend). */
+export function modeOf(input: Pick<BuildShowInput, 'mode' | 'doc'>): ShowMode {
+  const mode = input.mode ?? DEFAULT_MODE
+  return !mode.schedule && input.doc.schedule ? { ...mode, schedule: input.doc.schedule } : mode
 }
 
 export async function buildShowPackage(input: BuildShowInput): Promise<BuildShowResult> {

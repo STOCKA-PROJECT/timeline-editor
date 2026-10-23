@@ -1,3 +1,5 @@
+import type { ButtonSchedule } from '~/types/show'
+
 // The editor document schema (front-end owned, versioned). Stored verbatim as the timeline scene
 // `document` JSON in the backend.
 
@@ -91,6 +93,8 @@ export interface SceneDocument {
    * out one after the other using their length attribute.
    */
   stripOrder?: Record<string, string[]>
+  /** When the physical button starts the show; exported as `mode.schedule`. Absent = always. */
+  schedule?: ButtonSchedule
 }
 
 export function emptyDocument(): SceneDocument {

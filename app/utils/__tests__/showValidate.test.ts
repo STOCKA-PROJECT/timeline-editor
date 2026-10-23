@@ -341,3 +341,32 @@ describe('validateShowPackage · relay double pulse', () => {
     expect(codes(full(p => { const e = doublePulse(p); e.action = 'pulse'; e.params = { duration: 0.5 } }), 'error')).toContain('E_ACTION_UNKNOWN')
   })
 })
+
+describe('button schedule', () => {
+  const EVENINGS = { rule: 'allow' as const, windows: [{ days: ['mon' as const, 'fri' as const], from: '17:00', to: '21:00' }] }
+  const withSchedule = (schedule: unknown, on: 'once' | 'loop' | 'pulse' = 'pulse') =>
+    pkg(p => { p.mode = { on, cycles: 1, schedule: schedule as never } })
+
+  it('no schedule, no findings; a valid one with a play button neither', () => {
+    expect(codes(pkg()).filter(c => c.includes('SCHEDULE'))).toEqual([])
+    expect(codes(withSchedule(EVENINGS)).filter(c => c.includes('SCHEDULE'))).toEqual([])
+  })
+
+  it('a window that lasts nothing is E_SCHEDULE_INVALID with the device message', () => {
+    const issues = validateShowPackage(withSchedule({ rule: 'block', windows: [{ days: ['sun'], from: '13:00', to: '13:00' }] }))
+    const found = issues.filter(i => i.code === 'E_SCHEDULE_INVALID')
+    expect(found.map(i => i.message)).toEqual(["La franja 1 de l'horari comença i acaba a les 13:00: no dura res."])
+  })
+
+  it('a malformed schedule is one E_SCHEDULE_INVALID per problem', () => {
+    const p = withSchedule({ rule: 'maybe', windows: [{ days: ['lunes'], from: '7:00', to: '21:00' }] })
+    expect(codes(p, 'error').filter(c => c === 'E_SCHEDULE_INVALID')).toHaveLength(3)
+  })
+
+  it('warns W_SCHEDULE_UNUSED without a play sensor and in loop mode', () => {
+    const noButton = withSchedule(EVENINGS)
+    for (const entry of Object.values(noButton.hardware)) if (entry.kind === 'sensor') entry.onActive = 'stop_show'
+    expect(codes(noButton, 'warning')).toContain('W_SCHEDULE_UNUSED')
+    expect(codes(withSchedule(EVENINGS, 'loop'), 'warning')).toContain('W_SCHEDULE_UNUSED')
+  })
+})

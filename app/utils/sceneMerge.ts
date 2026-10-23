@@ -7,10 +7,10 @@ import type { SceneClip, SceneDocument, SceneItem, SceneLayer, SceneTrack } from
 //   - changed on one side only → that side wins (including additions and deletions);
 //   - changed on both sides to the same thing → no conflict;
 //   - changed on both sides differently → a conflict the user resolves (mine or theirs).
-// Scalar parts (board, duration, fps) and each port of `stripOrder` follow the same rule.
+// Scalar parts (board, duration, fps, button schedule) and each port of `stripOrder` follow the same rule.
 
 export type MergeEntityKind = 'layer' | 'item' | 'track' | 'clip'
-export type MergeScalarKind = 'board' | 'durationMs' | 'fps' | 'stripOrder'
+export type MergeScalarKind = 'board' | 'durationMs' | 'fps' | 'stripOrder' | 'schedule'
 export type MergeConflictKind = MergeEntityKind | MergeScalarKind
 export type MergeSide = 'local' | 'remote'
 
@@ -18,7 +18,7 @@ export interface MergeConflict {
   /** Stable id inside the merge (`clip:<id>`, `board`, `stripOrder:<port>`…). */
   id: string
   kind: MergeConflictKind
-  /** Entity id or `stripOrder` port; absent for board, duration and fps. */
+  /** Entity id or `stripOrder` port; absent for board, duration, fps and schedule. */
   entityId?: string
   base: unknown
   local: unknown
@@ -158,9 +158,11 @@ function mergeWith(
     clips: mergeCollection<SceneClip>('clip', base?.clips, local.clips, remote.clips, conflicts, choose),
     durationMs: mergeScalar('durationMs', base?.durationMs, local.durationMs, remote.durationMs, conflicts, choose) ?? remote.durationMs,
     fps: mergeScalar('fps', base?.fps, local.fps, remote.fps, conflicts, choose),
-    stripOrder: mergeStripOrder(base?.stripOrder, local.stripOrder, remote.stripOrder, conflicts, choose)
+    stripOrder: mergeStripOrder(base?.stripOrder, local.stripOrder, remote.stripOrder, conflicts, choose),
+    schedule: mergeScalar('schedule', base?.schedule, local.schedule, remote.schedule, conflicts, choose)
   }
   if (document.fps === undefined) delete document.fps
+  if (document.schedule === undefined) delete document.schedule
   return { document, conflicts }
 }
 

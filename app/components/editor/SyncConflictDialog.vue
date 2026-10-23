@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { BoardConfig, SceneClip, SceneDocument, SceneItem, SceneLayer, SceneTrack } from '~/types/editor'
+import type { ButtonSchedule } from '~/types/show'
 import type { MergeConflict, MergeSide } from '~/utils/sceneMerge'
+import { scheduleSummary } from '~/utils/schedule'
 
 // Shown when this laptop's edits and another session's (the web, the assistant, another laptop)
 // touched the same things. Everything else is already merged; here the user picks, for each clash,
@@ -56,10 +58,13 @@ function title(c: MergeConflict): string {
     case 'durationMs': return 'Durada del show'
     case 'fps': return 'Fotogrames per segon'
     case 'stripOrder': return `Ordre de les peces a la tira ${catalog.portById(Number(c.entityId))?.name ?? c.entityId}`
+    case 'schedule': return 'Horari del polsador'
   }
 }
 
 function describe(c: MergeConflict, value: unknown): string {
+  // without a schedule the button always works: that is a value, not a deletion
+  if (c.kind === 'schedule') return scheduleSummary(value as ButtonSchedule | undefined)
   if (value === undefined) return 'Esborrat'
   switch (c.kind) {
     case 'clip': {

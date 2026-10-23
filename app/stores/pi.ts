@@ -84,6 +84,17 @@ export const usePiStore = defineStore('pi', () => {
     streaming.value = false
   }
 
+  /** The Pi has no battery clock: when its time is not reliable, give it ours (an old Pi without the endpoint is fine). */
+  async function syncClock(c: PiClient) {
+    if (!status.value?.clock || status.value.clock.reliable) return
+    try {
+      await c.syncClock()
+      if (client === c) status.value = await c.status()
+    } catch {
+      // without the time the Pi ignores the schedule and the button keeps working
+    }
+  }
+
   /** Connects to `address` (or the saved one); on success it is remembered for next time. */
   async function connect(address?: string): Promise<boolean> {
     connecting.value = true
@@ -105,6 +116,7 @@ export const usePiStore = defineStore('pi', () => {
         streaming.value = false
       })
       if (pin.value) pinVerified.value = await c.checkPin(pin.value).catch(() => false)
+      void syncClock(c)
       return true
     } catch (e) {
       error.value = message(e, 'No s’ha pogut connectar amb la Raspberry.')

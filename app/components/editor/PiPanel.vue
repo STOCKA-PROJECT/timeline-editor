@@ -2,6 +2,7 @@
 import { formatBytes } from '~/utils/bundle/formatBytes'
 import type { ShowIssue } from '~/types/show'
 import { DEFAULT_PI_URLS } from '~/utils/pi/piClient'
+import { formatPiTime, scheduleSummary } from '~/utils/schedule'
 
 // «Raspberry»: the belén Pi on the local network, straight from the editor. Send the open show
 // (only what the Pi lacks travels), start or stop it, see its alerts and follow its log live. Needs
@@ -57,6 +58,20 @@ const cycleText = computed(() => {
   const sec = (ms: number) => `${Math.floor(ms / 1000)} s`
   // The Pi reports cycle 0 for an instant before the first cycle starts.
   return `cicle ${Math.max(1, s.cycle)}${s.cyclesTarget ? ` de ${s.cyclesTarget}` : ''} · ${sec(s.cycleMs)} de ${sec(s.durationMs)}`
+})
+const clockText = computed(() => {
+  const c = pi.status?.clock
+  if (!c) return ''
+  if (!c.reliable) return 'La Raspberry no sap l’hora: l’horari del polsador s’ignora i el polsador funciona sempre.'
+  return `Hora de la Raspberry: ${formatPiTime(c.now)} (${c.source === 'ntp' ? 'Internet' : 'd’un ordinador o un mòbil'})`
+})
+const scheduleText = computed(() => {
+  const sc = pi.status?.schedule
+  if (!sc) return ''
+  const now = !sc.applies
+    ? 'funciona sempre fins que sàpiga l’hora'
+    : `${sc.open ? 'funciona' : 'no funciona'}${sc.nextChange ? ` fins ${formatPiTime(sc.nextChange)}` : ''}`
+  return `Polsador: ${now} · ${scheduleSummary(sc)}`
 })
 const resultText = computed(() => {
   const r = pi.sendResult
@@ -261,6 +276,8 @@ onBeforeUnmount(() => {
               <span v-if="cycleText" class="text-ink-soft">{{ cycleText }}</span>
             </div>
             <p v-if="pi.status?.lastError" class="text-[12px] leading-4 text-danger">{{ pi.status.lastError }}</p>
+            <p v-if="clockText" class="text-[12px] leading-4" :class="pi.status?.clock?.reliable ? 'text-ink-soft' : 'text-warn'">{{ clockText }}</p>
+            <p v-if="scheduleText" class="text-[12px] leading-4 text-ink-soft">{{ scheduleText }}</p>
             <div class="flex flex-wrap gap-2">
               <button type="button" class="btn btn-sm" :disabled="!pi.pinVerified || !!pi.busyCommand || !pi.status?.showName || playing" @click="pi.play()">Reprodueix</button>
               <button type="button" class="btn btn-sm" :disabled="!pi.pinVerified || !!pi.busyCommand || !playing" @click="pi.stop()">Atura</button>

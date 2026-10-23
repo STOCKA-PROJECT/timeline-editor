@@ -216,3 +216,33 @@ describe('removeOrphans', () => {
     expect(removedOrphans).toBe(0)
   })
 })
+
+describe('button schedule', () => {
+  const evenings = { rule: 'allow' as const, windows: [{ days: ['fri' as const], from: '17:00', to: '21:00' }] }
+  const mornings = { rule: 'allow' as const, windows: [{ days: ['sun' as const], from: '10:00', to: '13:00' }] }
+
+  it('a schedule added on one side only is kept', () => {
+    const base = baseDoc()
+    const local = edit(base, d => { d.schedule = evenings })
+    expect(mergeScenes(base, local, base).merged.schedule).toEqual(evenings)
+    expect(mergeScenes(base, base, local).merged.schedule).toEqual(evenings)
+  })
+
+  it('a schedule removed on one side only is removed, without leaving the key', () => {
+    const base = edit(baseDoc(), d => { d.schedule = evenings })
+    const local = edit(base, d => { delete d.schedule })
+    const { merged, conflicts } = mergeScenes(base, local, base)
+    expect(conflicts).toEqual([])
+    expect(merged).not.toHaveProperty('schedule')
+  })
+
+  it('different schedules on both sides are a conflict the user resolves', () => {
+    const base = baseDoc()
+    const local = edit(base, d => { d.schedule = evenings })
+    const remote = edit(base, d => { d.schedule = mornings })
+    const result = mergeScenes(base, local, remote)
+    expect(result.conflicts.map(c => c.id)).toEqual(['schedule'])
+    expect(result.merged.schedule).toEqual(mornings)
+    expect(resolveMerge(result, { schedule: 'local' }).document.schedule).toEqual(evenings)
+  })
+})

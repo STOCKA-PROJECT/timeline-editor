@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ShowIssue } from '~/types/show'
+import { scheduleSummary } from '~/utils/schedule'
 
 const scene = useSceneStore()
 const config = useRuntimeConfig()
@@ -33,6 +34,9 @@ const saveTone = computed(() => {
 // ----- Raspberry (local network) -----
 const pi = usePiStore()
 const piOpen = ref(false)
+
+// ----- button schedule -----
+const scheduleOpen = ref(false)
 
 // ----- export / import -----
 // "Exportar show" builds the stocka-show package the Raspberry Pi executes (ports → hardware,
@@ -200,6 +204,13 @@ const statusTone = computed(() => {
       <div class="h-5 w-px bg-line-strong" />
       <div class="flex items-center gap-1">
         <button
+          class="btn btn-sm btn-quiet inline-flex items-center gap-1.5"
+          :title="`Horari del polsador: ${scheduleSummary(scene.schedule)}`"
+          @click="scheduleOpen = true">
+          <span v-if="scene.schedule" class="h-2 w-2 rounded-full bg-accent" aria-hidden="true" />
+          Horari
+        </button>
+        <button
           class="btn btn-sm" :disabled="exporting"
           title="Genera el paquet de show (.show.json) per al reproductor del pessebre"
           @click="exportShow()">{{ exporting ? 'Exportant…' : 'Exportar show' }}</button>
@@ -253,6 +264,7 @@ const statusTone = computed(() => {
       @close="issuesOpen = false" />
     <EditorBundleExportDialog v-if="bundleOpen" @close="bundleOpen = false" />
     <EditorPiPanel v-if="piOpen" @close="piOpen = false" />
+    <EditorScheduleDialog v-if="scheduleOpen" @close="scheduleOpen = false" />
     <EditorSyncConflictDialog v-if="scene.pendingMerge" />
   </header>
 </template>

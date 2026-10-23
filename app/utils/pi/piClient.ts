@@ -4,6 +4,8 @@
 // the "local network access" permission; the Pi answers CORS for the editor's origins. Reads are
 // public; commands carry the PIN in `Authorization: Pin <pin>` (no cookies across origins).
 
+import type { ButtonSchedule } from '~/types/show'
+
 export const DEFAULT_PI_PORT = 8080
 export const DEFAULT_PI_URLS = ['http://belen.local:8080', 'http://10.42.0.1:8080'] as const
 /** Size of each piece of a resumable upload (the Pi accepts any size up to its limit). */
@@ -61,6 +63,28 @@ export interface PiMotor {
   limitReverse: string | null
 }
 
+/** The Pi's wall clock: reliable with NTP or once a client gave it the time since boot. */
+export interface PiClock {
+  reliable: boolean
+  source: 'ntp' | 'client' | null
+  /** Local time of the Pi, ISO without offset. */
+  now: string
+}
+
+export interface PiClockSync extends PiClock {
+  adjusted: boolean
+  offsetMs: number
+}
+
+/** The active show's button schedule as the Pi applies it right now. */
+export interface PiSchedule extends ButtonSchedule {
+  /** False while the Pi does not know the time: the button then always works. */
+  applies: boolean
+  open: boolean
+  /** Local time (ISO, minutes) when `open` changes next, if within 8 days. */
+  nextChange: string | null
+}
+
 export interface PiStatus {
   state: PiState
   showHash: string | null
@@ -76,6 +100,8 @@ export interface PiStatus {
   motors?: Record<string, PiMotor>
   alerts?: PiAlert[]
   dmx?: { connected: boolean, error: string | null } | null
+  clock?: PiClock
+  schedule?: PiSchedule | null
   [extra: string]: unknown
 }
 
@@ -242,6 +268,15 @@ export class PiClient {
       if (error instanceof PiApiError && error.code === 'pin_invalid') return false
       throw error
     }
+  }
+
+  /**
+   * Gives the Pi this computer's time: it has no battery clock and no Internet at the belén. The PIN
+   * goes along when known; the Pi only asks for it once its time is already reliable.
+   */
+  syncClock(epochMs: number = Date.now()): Promise<PiClockSync> {
+    const headers = this.pin ? { Authorization: `Pin ${this.pin}`, 'X-Name': this.name } : undefined
+    return this.request('POST', '/api/clock', { json: { epochMs }, headers })
   }
 
   play(cycles?: number): Promise<PiStatus> { return this.request('POST', '/api/play', { json: cycles ? { cycles } : {}, pin: true }) }

@@ -1,5 +1,6 @@
 import { actionParams, catalog as defaultCatalog, movingHeadProfile, pinModeOf, requiredParams, sensorProfile, type CatalogParam, type OutputCatalog, type SensorProfile } from '~/types/catalog'
 import { issue, type ShowIssue, type ShowPackage } from '~/types/show'
+import { isEmptyWindow, scheduleStructuralProblems } from '~/utils/schedule'
 
 // Semantic rules of a stocka-show package, mirroring `rpi4-system/contract/validate.py`. Runs on
 // the assembled package, so an imported or hand-edited package gets the same checks the device
@@ -327,6 +328,25 @@ export function validateShowPackage(pkg: ShowPackage, catalog: OutputCatalog = d
   for (const [name, entry] of Object.entries(hardware)) {
     if (entry.kind === 'sensor' && (entry.onActive ?? 'none') === 'none' && !referencedSensors.has(name)) {
       issues.push(issue('warning', 'W_SENSOR_UNUSED', `El sensor «${name}» no fa res: cap motor el fa servir i no té onActive.`, { port: name }))
+    }
+  }
+
+  // --- button schedule (mode.schedule) ------------------------------------------------------
+  const schedule = pkg.mode?.schedule
+  if (schedule) {
+    ;(schedule.windows ?? []).forEach((w, i) => {
+      if (w && isEmptyWindow(w)) {
+        issues.push(issue('error', 'E_SCHEDULE_INVALID', `La franja ${i + 1} de l'horari comença i acaba a les ${w.from}: no dura res.`))
+      }
+    })
+    for (const problem of scheduleStructuralProblems(schedule)) {
+      issues.push(issue('error', 'E_SCHEDULE_INVALID', `L'horari no és vàlid: ${problem}.`))
+    }
+    const hasButton = Object.values(hardware).some(e => e.kind === 'sensor' && e.onActive === 'play')
+    if (!hasButton) {
+      issues.push(issue('warning', 'W_SCHEDULE_UNUSED', "L'horari no fa res: cap sensor té onActive play."))
+    } else if (pkg.mode.on === 'loop') {
+      issues.push(issue('warning', 'W_SCHEDULE_UNUSED', "L'horari no fa res en mode loop: el show es repeteix sense polsador."))
     }
   }
 

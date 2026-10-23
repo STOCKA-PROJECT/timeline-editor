@@ -397,3 +397,37 @@ describe('pieces sharing a LED strip', () => {
     expect(body.timeline[0]!.target).toBe('Focos #2')
   })
 })
+
+describe('button schedule', () => {
+  const schedule = { rule: 'allow' as const, windows: [{ days: ['fri' as const, 'sat' as const], from: '17:00', to: '21:00' }] }
+
+  it('goes from the scene to mode.schedule and into the hash, the same as the Pi and the backend', async () => {
+    const { pkg: plain } = await buildShowPackage(input())
+    const { pkg, errors, warnings } = await buildShowPackage(input({ doc: { ...fx.document(), schedule } }))
+    expect(errors).toEqual([])
+    expect(codes(warnings)).toEqual([])
+    expect(pkg!.mode).toEqual({ on: 'once', cycles: 1, schedule })
+    expect(pkg!.meta.hash).not.toBe(plain!.meta.hash)
+    // same value in rpi4-system tests/test_show_hash.py and backend ShowPackageBuilderTest
+    expect(pkg!.meta.hash).toBe('sha256:e5dba297bdd5ca75d6b85d3f51a6b19b2cb4d0c43a4dd0d6ec7a04da1d809df2')
+  })
+
+  it('leaves mode without the key when the scene has no schedule', async () => {
+    const { pkg } = await buildShowPackage(input())
+    expect(pkg!.mode).not.toHaveProperty('schedule')
+    expect(showHashInput(pkg!)).not.toContain('schedule')
+  })
+
+  it('a schedule given in the mode wins over the scene one', async () => {
+    const explicit = { rule: 'block' as const, windows: [{ days: ['sun' as const], from: '13:00', to: '16:00' }] }
+    const { pkg } = await buildShowPackage(input({ doc: { ...fx.document(), schedule }, mode: { on: 'pulse', cycles: 2, schedule: explicit } }))
+    expect(pkg!.mode.schedule).toEqual(explicit)
+  })
+
+  it('an empty window blocks the export', async () => {
+    const empty = { rule: 'allow' as const, windows: [{ days: ['mon' as const], from: '17:00', to: '17:00' }] }
+    const { pkg, errors } = await buildShowPackage(input({ doc: { ...fx.document(), schedule: empty } }))
+    expect(pkg).toBeNull()
+    expect(codes(errors)).toEqual(['E_SCHEDULE_INVALID'])
+  })
+})
