@@ -51,6 +51,12 @@ function newDevice() {
   piOpen.value = true
 }
 
+// «Prova a la Raspberry» (timeline) asks for the panel when there is no Pi or no PIN yet.
+watch(() => pi.panelRequests, () => {
+  piStart.value = {}
+  piOpen.value = true
+})
+
 // ----- button schedule -----
 const scheduleOpen = ref(false)
 

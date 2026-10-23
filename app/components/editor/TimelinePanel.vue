@@ -23,6 +23,14 @@ const lanesRef = ref<HTMLDivElement | null>(null)
 const totalWidth = computed(() => scene.durationMs * pxPerMs.value)
 /** Ruler ticks adapted to the zoom: labels keep a minimum spacing, minor ticks fill the gaps. */
 const ruler = computed(() => rulerTicks(scene.durationMs, pxPerMs.value))
+/** The Inicio → Fins band on the ruler, only when it is not the whole show. */
+const rangeBand = computed(() => {
+  const fromMs = playback.rangeStartMs
+  const toMs = playback.endMs
+  if (fromMs <= 0 && toMs >= scene.durationMs) return null
+  const sec = (ms: number) => `${(ms / 1000).toFixed(1)} s`
+  return { fromMs, toMs, label: `${sec(fromMs)} a ${sec(toMs)}` }
+})
 
 // ---- layer filter and folders ----
 /**
@@ -241,6 +249,7 @@ function selectTrackItem(track: SceneTrack) {
     <!-- Transport bar: everything related to playback lives here, right above the timeline. -->
     <div class="flex items-center gap-3 border-b border-line px-3 py-1.5">
       <EditorPlaybackControls />
+      <EditorRehearsalControls />
       <div class="ml-auto flex items-center gap-1">
         <span class="text-[11px] text-ink-muted">Zoom</span>
         <button class="btn !h-7 !px-2 !text-[12px]" @click="pxPerMs = Math.max(0.008, pxPerMs / 1.25)">−</button>
@@ -278,6 +287,11 @@ function selectTrackItem(track: SceneTrack) {
               :style="{ left: tick.ms * pxPerMs + 'px' }">
               {{ tick.label }}
             </div>
+            <div
+              v-if="rangeBand"
+              class="range-band pointer-events-none absolute top-0 h-full"
+              :title="`Tram: de ${rangeBand.label}`"
+              :style="{ left: rangeBand.fromMs * pxPerMs + 'px', width: (rangeBand.toMs - rangeBand.fromMs) * pxPerMs + 'px' }" />
             <div
               class="pointer-events-none absolute top-0 h-full w-px bg-danger"
               :style="{ left: playback.currentMs * pxPerMs + 'px' }">
@@ -412,6 +426,12 @@ function selectTrackItem(track: SceneTrack) {
 }
 .clip.is-selected .clip-handle {
   background: color-mix(in oklab, var(--c-on-accent) 45%, transparent);
+}
+/* Inicio → Fins on the ruler: what local playback loops over and what the Raspberry rehearses. */
+.range-band {
+  background: color-mix(in oklab, var(--c-accent) 14%, transparent);
+  border-left: 2px solid var(--c-accent);
+  border-right: 2px solid var(--c-accent);
 }
 .lane-selected {
   background: color-mix(in oklab, var(--c-accent) 7%, transparent);

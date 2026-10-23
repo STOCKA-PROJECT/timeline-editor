@@ -12,6 +12,12 @@ function fmt(ms: number): string {
 
 const toSec = (ms: number) => (ms / 1000)
 function num(e: Event) { return Number((e.target as HTMLInputElement).value) }
+/** «Fins» left empty (or not after «Inicio») means the end of the show. */
+function onRangeEnd(e: Event) {
+  const input = e.target as HTMLInputElement
+  playback.setRangeEnd(input.value.trim() === '' ? null : Number(input.value) * 1000)
+  input.value = playback.rangeEndMs === null ? '' : toSec(playback.rangeEndMs).toFixed(2)
+}
 </script>
 
 <template>
@@ -98,6 +104,16 @@ function num(e: Event) { return Number((e.target as HTMLInputElement).value) }
           type="number" min="0" step="0.1"
           :value="toSec(playback.rangeStartMs).toFixed(2)"
           @change="playback.setRangeStart(num($event) * 1000)">
+        <span class="text-ink-muted">s</span>
+      </label>
+
+      <label class="flex items-center gap-1" title="Segon on s'acaba la reproducció i l'assaig a la Raspberry (buit: fins al final)">
+        Fins
+        <input
+          class="field !h-8 !w-20 !px-2 font-mono tabular-nums"
+          type="number" min="0" step="0.1" placeholder="final"
+          :value="playback.rangeEndMs === null ? '' : toSec(playback.rangeEndMs).toFixed(2)"
+          @change="onRangeEnd">
         <span class="text-ink-muted">s</span>
       </label>
 

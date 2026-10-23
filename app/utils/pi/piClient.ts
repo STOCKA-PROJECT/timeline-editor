@@ -4,7 +4,7 @@
 // the "local network access" permission; the Pi answers CORS for the editor's origins. Reads are
 // public; commands carry the PIN in `Authorization: Pin <pin>` (no cookies across origins).
 
-import type { ButtonSchedule } from '~/types/show'
+import type { ButtonSchedule, ShowPackage } from '~/types/show'
 
 export const DEFAULT_PI_PORT = 8080
 export const DEFAULT_PI_URLS = ['http://belen.local:8080', 'http://10.42.0.1:8080'] as const
@@ -86,6 +86,26 @@ export interface PiSchedule extends ButtonSchedule {
   nextChange: string | null
 }
 
+/** A motor that does not move in the rehearsal: a clip cut by the range, or not as many turns as returns. */
+export interface PiSkippedMotor {
+  target: string
+  reason: 'cut' | 'unbalanced'
+  forward: number
+  reverse: number
+}
+
+/** A rehearsal from the editor: a range of a show that lives only in the Pi's memory. */
+export interface PiRehearsal {
+  fromMs: number
+  toMs: number
+  loop: boolean
+  startedAt: string
+  showHash: string | null
+  showName: string | null
+  showTimelineId: number | null
+  skippedMotors: PiSkippedMotor[]
+}
+
 export interface PiStatus {
   state: PiState
   showHash: string | null
@@ -103,6 +123,8 @@ export interface PiStatus {
   dmx?: { connected: boolean, error: string | null } | null
   clock?: PiClock
   schedule?: PiSchedule | null
+  /** While a rehearsal lasts (`showHash` stays the active show; `cycleMs` counts from the show's 0). */
+  rehearsal?: PiRehearsal | null
   [extra: string]: unknown
 }
 
@@ -286,6 +308,27 @@ export class PiClient {
   clearAlerts(): Promise<{ cleared: number }> { return this.request('DELETE', '/api/alerts', { pin: true }) }
   unlockMotor(motor: string): Promise<{ motor: string, unlocked: boolean }> {
     return this.request('POST', `/api/motors/${encodeURIComponent(motor)}/unlock`, { json: {}, pin: true })
+  }
+
+  /**
+   * Plays the range `[fromMs, toMs)` of `pkg` without storing it (rehearsal); a new one replaces the
+   * previous. `422` carries the Pi's report, `409 missing_assets` the files it lacks (`body.missing`).
+   */
+  rehearse(pkg: ShowPackage, range: { fromMs: number, toMs: number | null, loop: boolean }): Promise<PiStatus> {
+    return this.request('POST', '/api/rehearsal', { json: { show: pkg, ...range }, pin: true, timeoutMs: SLOW_TIMEOUT_MS })
+  }
+
+  /** Ends the rehearsal: the Pi goes back to its active show. */
+  endRehearsal(): Promise<PiStatus> { return this.request('DELETE', '/api/rehearsal', { pin: true }) }
+
+  /** Stores one file on the Pi (never overwrites one it already has). */
+  putAsset(kind: 'audio', name: string, bytes: Uint8Array<ArrayBuffer>): Promise<{ kind: string, name: string, stored: boolean }> {
+    return this.request('PUT', `/api/assets/${kind}/${encodeURIComponent(name)}`, {
+      body: bytes,
+      headers: { 'Content-Type': 'application/octet-stream' },
+      pin: true,
+      timeoutMs: SLOW_TIMEOUT_MS
+    })
   }
 
   activate(hash: string): Promise<PiStatus | Record<string, unknown>> {

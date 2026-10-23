@@ -311,6 +311,7 @@ No bloquea las fases 1 a 3. Lo único realmente nuevo es el expansor de relés.
 - [ ] Vigilancia: watchdog de systemd y reinicio automático; `panic` por pulsación larga del botón físico.
 - [ ] Calibración del foco desde la CLI: posición y radio arriba y abajo.
 - [x] **Horario del pulsador (hecho el 23 de octubre).** Opcional, en dos sentidos: franjas en las que el pulsador funciona (fuera de ellas no hace nada) o, a la inversa, franjas en las que **no** funciona; cada franja = días de la semana + hora de inicio y de fin. Botón «Horari» del editor → `schedule` de la escena → `mode.schedule` del paquete (dentro del hash). Solo afecta a la pulsación corta de los sensores `onActive: play`. La Pi 4 no tiene reloj con pila: la página local, la app y el editor le pasan la hora al conectarse (`POST /api/clock`); sin hora fiable el horario se ignora y el pulsador funciona siempre.
+- [x] **Ensayo en la Raspberry** (implementado el 23 de octubre, sin desplegar; [`ensayo-en-la-raspberry.md`](ensayo-en-la-raspberry.md)): botón «Prova a la Raspberry» en el timeline; la Pi reproduce desde la marca de inicio hasta «Fins», en bucle, poniéndose al día; show de ensayo temporal; motores solo con clips enteros y equilibrados.
 - [ ] Editor: vista previa fiel a la semántica 4.3 para `fill`, `fade`, `turn_on` con `time` y motor con tiempos medidos. Las animaciones se muestran como color medio.
 
 ### Fase 6 · Publicación desde la nube · 23 de noviembre – 6 de diciembre (o después de Navidad si aprieta)

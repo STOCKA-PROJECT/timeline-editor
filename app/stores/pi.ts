@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import type { ShowAssetRef, ShowPackage } from '~/types/show'
 import { DEFAULT_PI_URLS, normalizePiUrl, PiApiError, PiClient, type PiInfo, type PiStatus, type UploadProgress } from '~/utils/pi/piClient'
+import { rehearseOnPi, type RehearsalRange, type RehearseResult } from '~/utils/pi/rehearse'
 import { sendShowToPi, type SendPhase, type SendShowResult } from '~/utils/pi/sendShow'
 
 const URL_KEY = 'stocka.pi.url'
@@ -44,6 +45,11 @@ export const usePiStore = defineStore('pi', () => {
   const pinVerified = ref(false)
   const info = ref<PiInfo | null>(null)
   const status = ref<PiStatus | null>(null)
+  /** `performance.now()` when the last status arrived: the playhead interpolates from it. */
+  const statusAt = ref(0)
+  watch(status, () => { statusAt.value = typeof performance === 'undefined' ? Date.now() : performance.now() }, { flush: 'sync' })
+  /** Bumped when something outside the toolbar needs the «Dispositiu» panel open (connect, PIN). */
+  const panelRequests = ref(0)
   const connecting = ref(false)
   /** The live stream is delivering (false while it reconnects). */
   const streaming = ref(false)
@@ -66,6 +72,7 @@ export const usePiStore = defineStore('pi', () => {
   const lockedMotors = computed(() => Object.entries(status.value?.motors ?? {}).filter(([, m]) => m.locked).map(([name]) => name))
   const state = computed(() => status.value?.state ?? info.value?.state ?? null)
   const sending = computed(() => sendPhase.value !== null && sendPhase.value !== 'done' && sendPhase.value !== 'error')
+  const rehearsal = computed(() => status.value?.rehearsal ?? null)
 
   function actorName(): string {
     const user = useAuthStore().user
@@ -242,6 +249,25 @@ export const usePiStore = defineStore('pi', () => {
     }
   }
 
+  /** Plays a range of `pkg` on the Pi without storing it (see `rehearseOnPi`). */
+  async function rehearse(pkg: ShowPackage, range: RehearsalRange, fetchAsset: (ref: ShowAssetRef) => Promise<ArrayBuffer>, onUpload?: (name: string) => void): Promise<RehearseResult> {
+    if (!client) throw new PiApiError(0, 'not_connected', 'Connecta’t primer a la Raspberry.')
+    try {
+      const result = await rehearseOnPi({ client, pkg, range, fetchAsset, onUpload })
+      if (result.status === 'started') status.value = result.piStatus
+      return result
+    } catch (e) {
+      if (e instanceof PiApiError && (e.code === 'pin_invalid' || e.code === 'pin_required')) pinVerified.value = false
+      throw e
+    }
+  }
+
+  const endRehearsal = () => command('rehearsal', c => c.endRehearsal())
+
+  function requestPanel() {
+    panelRequests.value++
+  }
+
   function resetSend() {
     sendPhase.value = null
     sendProgress.value = null
@@ -255,6 +281,9 @@ export const usePiStore = defineStore('pi', () => {
     pinVerified,
     info,
     status,
+    statusAt,
+    panelRequests,
+    rehearsal,
     state,
     connecting,
     connected,
@@ -284,6 +313,9 @@ export const usePiStore = defineStore('pi', () => {
     clearAlerts,
     unlockMotor,
     send,
-    resetSend
+    resetSend,
+    rehearse,
+    endRehearsal,
+    requestPanel
   }
 })

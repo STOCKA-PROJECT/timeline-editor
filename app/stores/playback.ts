@@ -1,10 +1,12 @@
 import { defineStore } from 'pinia'
 import type { SceneClip } from '~/types/editor'
+import { normalizeRangeEnd, rangeEndOf } from '~/utils/playRange'
 
 /**
  * Drives the playhead (a requestAnimationFrame loop) and exposes which clip is active per track at
- * the current time. Playback runs within the range [rangeStartMs, scene.durationMs]; the "Fin"
- * (end) is the scene duration. Visual effects are derived in the canvas; this store owns the clock.
+ * the current time. Playback runs within the range [rangeStartMs, rangeEndMs ?? scene.durationMs];
+ * «Fins» (`rangeEndMs`) is the end of that range, «Fin» the scene duration. The same range is what
+ * «Prova a la Raspberry» rehearses. Visual effects are derived in the canvas; this store owns the clock.
  */
 export const usePlaybackStore = defineStore('playback', () => {
   const scene = useSceneStore()
@@ -12,6 +14,8 @@ export const usePlaybackStore = defineStore('playback', () => {
   const currentMs = ref(0)
   const playing = ref(false)
   const rangeStartMs = ref(0)
+  /** End of the range; null = the end of the scene. */
+  const rangeEndMs = ref<number | null>(null)
   const loop = ref(false)
   /** Whether the audio clips sound during preview playback (see `useAudioPreview`). */
   const audioEnabled = ref(true)
@@ -20,7 +24,8 @@ export const usePlaybackStore = defineStore('playback', () => {
   let rafId: number | null = null
   let lastTs = 0
 
-  const endMs = computed(() => scene.durationMs)
+  /** Where playback stops (or loops): «Fins», kept inside the scene. */
+  const endMs = computed(() => rangeEndOf(rangeEndMs.value, rangeStartMs.value, scene.durationMs))
 
   function tick(ts: number) {
     if (!playing.value) return
@@ -62,7 +67,7 @@ export const usePlaybackStore = defineStore('playback', () => {
   }
 
   function seek(ms: number) {
-    currentMs.value = Math.max(0, Math.min(endMs.value, Math.round(ms)))
+    currentMs.value = Math.max(0, Math.min(scene.durationMs, Math.round(ms)))
   }
 
   function stop() {
@@ -71,8 +76,14 @@ export const usePlaybackStore = defineStore('playback', () => {
   }
 
   function setRangeStart(ms: number) {
-    rangeStartMs.value = Math.max(0, Math.min(endMs.value, Math.round(ms)))
+    rangeStartMs.value = Math.max(0, Math.min(scene.durationMs, Math.round(ms)))
+    if (rangeEndMs.value !== null && rangeEndMs.value <= rangeStartMs.value) rangeEndMs.value = null
     if (currentMs.value < rangeStartMs.value) currentMs.value = rangeStartMs.value
+  }
+
+  /** «Fins»: null, the end of the scene or anything not after «Inicio» clears it. */
+  function setRangeEnd(ms: number | null) {
+    rangeEndMs.value = normalizeRangeEnd(ms, rangeStartMs.value, scene.durationMs)
   }
 
   function toggleLoop() {
@@ -109,6 +120,7 @@ export const usePlaybackStore = defineStore('playback', () => {
     currentMs,
     playing,
     rangeStartMs,
+    rangeEndMs,
     loop,
     audioEnabled,
     ledEnabled,
@@ -119,6 +131,7 @@ export const usePlaybackStore = defineStore('playback', () => {
     seek,
     stop,
     setRangeStart,
+    setRangeEnd,
     toggleLoop,
     toggleAudio,
     toggleLed,

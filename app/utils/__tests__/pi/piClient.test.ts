@@ -281,3 +281,49 @@ describe('syncClock', () => {
     await expect(new PiClient('belen.local', { fetch }).syncClock()).rejects.toMatchObject({ status: 401, code: 'pin_required' })
   })
 })
+
+describe('PiClient rehearsal', () => {
+  const show = { format: 'stocka-show', meta: { hash: 'sha256:x' } } as never
+
+  it('rehearse posts the show and the range with the PIN', async () => {
+    const { fetch, calls } = scripted([() => json(200, { state: 'PLAYING', rehearsal: { fromMs: 1000 } })])
+    const status = await new PiClient('belen.local', { fetch, pin: '123456' }).rehearse(show, { fromMs: 1000, toMs: null, loop: true })
+    expect(status.rehearsal).toEqual({ fromMs: 1000 })
+    expect(calls[0]!.method).toBe('POST')
+    expect(calls[0]!.url).toBe('http://belen.local:8080/api/rehearsal')
+    expect(calls[0]!.headers.Authorization).toBe('Pin 123456')
+    expect(JSON.parse(String(calls[0]!.body))).toEqual({ show: { format: 'stocka-show', meta: { hash: 'sha256:x' } }, fromMs: 1000, toMs: null, loop: true })
+  })
+
+  it('a refused rehearsal keeps the report in the error body', async () => {
+    const { fetch } = scripted([() => json(422, { ok: false, errors: [{ code: 'E_X', message: 'm' }] })])
+    await expect(new PiClient('belen.local', { fetch, pin: '1' }).rehearse(show, { fromMs: 0, toMs: null, loop: false }))
+      .rejects.toMatchObject({ status: 422, body: { ok: false, errors: [{ code: 'E_X', message: 'm' }] } })
+  })
+
+  it('endRehearsal deletes it', async () => {
+    const { fetch, calls } = scripted([() => json(200, { state: 'IDLE', rehearsal: null })])
+    await new PiClient('belen.local', { fetch, pin: '1' }).endRehearsal()
+    expect(calls[0]!.method).toBe('DELETE')
+    expect(calls[0]!.url).toBe('http://belen.local:8080/api/rehearsal')
+  })
+
+  it('putAsset sends the raw bytes under an encoded name', async () => {
+    const { fetch, calls } = scripted([() => json(201, { kind: 'audio', name: '12-cant del gall.mp3', stored: true })])
+    const bytes = new Uint8Array([1, 2, 3])
+    const res = await new PiClient('belen.local', { fetch, pin: '1' }).putAsset('audio', '12-cant del gall.mp3', bytes)
+    expect(res.stored).toBe(true)
+    expect(calls[0]!.method).toBe('PUT')
+    expect(calls[0]!.url).toBe('http://belen.local:8080/api/assets/audio/12-cant%20del%20gall.mp3')
+    expect(calls[0]!.headers['Content-Type']).toBe('application/octet-stream')
+    expect(calls[0]!.body).toBe(bytes)
+  })
+
+  it('rehearsal commands need the PIN', async () => {
+    const { fetch, calls } = scripted([])
+    const client = new PiClient('belen.local', { fetch })
+    await expect(client.endRehearsal()).rejects.toMatchObject({ code: 'pin_required' })
+    await expect(client.putAsset('audio', 'a.mp3', new Uint8Array())).rejects.toMatchObject({ code: 'pin_required' })
+    expect(calls).toHaveLength(0)
+  })
+})

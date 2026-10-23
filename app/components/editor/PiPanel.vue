@@ -2,6 +2,7 @@
 import { formatBytes } from '~/utils/bundle/formatBytes'
 import type { ShowIssue } from '~/types/show'
 import { DEFAULT_PI_URLS } from '~/utils/pi/piClient'
+import { skippedMotorText } from '~/utils/pi/rehearse'
 import { formatPiTime, scheduleSummary } from '~/utils/schedule'
 
 // «Raspberry»: the belén Pi on the local network, straight from the editor. Send the open show
@@ -65,6 +66,12 @@ const cycleText = computed(() => {
   const sec = (ms: number) => `${Math.floor(ms / 1000)} s`
   // The Pi reports cycle 0 for an instant before the first cycle starts.
   return `cicle ${Math.max(1, s.cycle)}${s.cyclesTarget ? ` de ${s.cyclesTarget}` : ''} · ${sec(s.cycleMs)} de ${sec(s.durationMs)}`
+})
+const rehearsalText = computed(() => {
+  const r = pi.rehearsal
+  if (!r) return ''
+  const sec = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
+  return `En assaig des de l’editor: «${r.showName ?? 'show'}» de ${sec(r.fromMs)} a ${sec(r.toMs)}${r.loop ? ', en bucle' : ''}. El show actiu no canvia.`
 })
 const clockText = computed(() => {
   const c = pi.status?.clock
@@ -305,10 +312,15 @@ onBeforeUnmount(() => {
               <span v-if="cycleText" class="text-ink-soft">{{ cycleText }}</span>
             </div>
             <p v-if="pi.status?.lastError" class="text-[12px] leading-4 text-danger">{{ pi.status.lastError }}</p>
+            <div v-if="rehearsalText" class="space-y-1 rounded-[6px] border border-accent bg-bg-alt px-3 py-2 text-[12px] leading-4">
+              <p class="text-ink">{{ rehearsalText }}</p>
+              <p v-for="m in pi.rehearsal!.skippedMotors" :key="m.target" class="text-warn">No es mou {{ skippedMotorText(m) }}</p>
+              <button type="button" class="btn btn-sm" :disabled="!pi.pinVerified || !!pi.busyCommand" @click="pi.endRehearsal()">Surt de l’assaig</button>
+            </div>
             <p v-if="clockText" class="text-[12px] leading-4" :class="pi.status?.clock?.reliable ? 'text-ink-soft' : 'text-warn'">{{ clockText }}</p>
             <p v-if="scheduleText" class="text-[12px] leading-4 text-ink-soft">{{ scheduleText }}</p>
             <div class="flex flex-wrap gap-2">
-              <button type="button" class="btn btn-sm" :disabled="!pi.pinVerified || !!pi.busyCommand || !pi.status?.showName || playing" @click="pi.play()">Reprodueix</button>
+              <button type="button" class="btn btn-sm" :disabled="!pi.pinVerified || !!pi.busyCommand || !pi.status?.showName || playing || !!pi.rehearsal" @click="pi.play()">Reprodueix</button>
               <button type="button" class="btn btn-sm" :disabled="!pi.pinVerified || !!pi.busyCommand || !playing" @click="pi.stop()">Atura</button>
               <button type="button" class="btn btn-sm btn-danger" :disabled="!pi.pinVerified || !!pi.busyCommand" @click="pi.panic()">Pànic</button>
             </div>
