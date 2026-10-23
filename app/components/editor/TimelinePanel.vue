@@ -22,7 +22,7 @@ const pxPerMs = ref(0.04)
 const lanesRef = ref<HTMLDivElement | null>(null)
 
 /** The show plus room after its last clip, to drop new ones there. */
-const viewMs = computed(() => timelineViewMs(scene.durationMs))
+const viewMs = computed(() => timelineViewMs(Math.max(scene.durationMs, playback.endMs)))
 const totalWidth = computed(() => viewMs.value * pxPerMs.value)
 /** Ruler ticks adapted to the zoom: labels keep a minimum spacing, minor ticks fill the gaps. */
 const ruler = computed(() => rulerTicks(viewMs.value, pxPerMs.value))
@@ -30,7 +30,7 @@ const ruler = computed(() => rulerTicks(viewMs.value, pxPerMs.value))
 const rangeBand = computed(() => {
   const fromMs = playback.rangeStartMs
   const toMs = playback.endMs
-  if (fromMs <= 0 && toMs >= scene.durationMs) return null
+  if (fromMs <= 0 && playback.rangeEndMs === null) return null
   return { fromMs, toMs, label: `${formatTimeInput(fromMs)} a ${formatTimeInput(toMs)}` }
 })
 

@@ -1,16 +1,17 @@
 // The range Inici → Fi of the transport bar: what local playback loops over and what
-// «Prova a la Raspberry» rehearses. «Fi» null means the end of the show, which is the end of its last clip.
+// «Prova a la Raspberry» rehearses. «Fi» may go past the last clip (silence before it repeats);
+// empty, it is the end of the show, which is the end of its last clip.
 
-/** A «Fi» typed by the user: kept only when it falls after Inici and before the end of the show. */
-export function normalizeRangeEnd(ms: number | null, startMs: number, durationMs: number): number | null {
+/** A «Fi» typed by the user: kept when it falls after Inici (it may be after the end of the show). */
+export function normalizeRangeEnd(ms: number | null, startMs: number): number | null {
   if (ms === null || !Number.isFinite(ms)) return null
   const end = Math.round(ms)
-  return end > startMs && end < durationMs ? end : null
+  return end > startMs ? end : null
 }
 
-/** Where the range ends: «Fi», or the end of the show when it is unset or no longer valid. */
+/** Where the range ends: «Fi», or the end of the show when it is unset or no longer after Inici. */
 export function rangeEndOf(rangeEndMs: number | null, startMs: number, durationMs: number): number {
-  return normalizeRangeEnd(rangeEndMs, startMs, durationMs) ?? durationMs
+  return normalizeRangeEnd(rangeEndMs, startMs) ?? durationMs
 }
 
 /** The show lasts until the end of its last clip (the backend's `SceneDocument` does the same); null without clips. */

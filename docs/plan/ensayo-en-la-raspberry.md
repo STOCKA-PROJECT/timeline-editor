@@ -11,7 +11,7 @@ navegador ni con hardware. Diferencias con lo planteado: el registro de la Pi di
 tramo se marca en la regla del timeline.
 
 **Cambio del 23 de octubre (tarde):** a petición de Joan la barra de transporte queda en una sola fila con solo
-«Inici» y «Fi» (en `m:ss`; «Fi» vacío = hasta el final del último clip) y desaparecen «Fin» y «Puntero». La duración
+«Inici» y «Fi» (en `m:ss`; «Fi» puede pasar del último clip, con silencio hasta repetir, y vacío = hasta el final del último clip) y desaparecen «Fin» y «Puntero». La duración
 del show ya no se escribe: es siempre el final de su último clip, en el editor (`scene.durationMs` calculada) y en el
 backend (`SceneDocument` la deriva; se elimina la operación `set_duration`).
 

@@ -24,7 +24,7 @@ export const usePlaybackStore = defineStore('playback', () => {
   let rafId: number | null = null
   let lastTs = 0
 
-  /** Where playback stops (or loops): «Fi», kept inside the show. */
+  /** Where playback stops (or loops): «Fi», or the end of the last clip. */
   const endMs = computed(() => rangeEndOf(rangeEndMs.value, rangeStartMs.value, scene.durationMs))
 
   function tick(ts: number) {
@@ -66,8 +66,9 @@ export const usePlaybackStore = defineStore('playback', () => {
     playing.value ? pause() : play()
   }
 
+  /** The playhead moves over the show and, when «Fi» is after it, up to «Fi». */
   function seek(ms: number) {
-    currentMs.value = Math.max(0, Math.min(scene.durationMs, Math.round(ms)))
+    currentMs.value = Math.max(0, Math.min(Math.max(scene.durationMs, endMs.value), Math.round(ms)))
   }
 
   function stop() {
@@ -81,9 +82,9 @@ export const usePlaybackStore = defineStore('playback', () => {
     if (currentMs.value < rangeStartMs.value) currentMs.value = rangeStartMs.value
   }
 
-  /** «Fi»: null, the end of the show or anything not after «Inici» clears it. */
+  /** «Fi»: null or anything not after «Inici» clears it (then the range ends with the last clip). */
   function setRangeEnd(ms: number | null) {
-    rangeEndMs.value = normalizeRangeEnd(ms, rangeStartMs.value, scene.durationMs)
+    rangeEndMs.value = normalizeRangeEnd(ms, rangeStartMs.value)
   }
 
   function toggleLoop() {

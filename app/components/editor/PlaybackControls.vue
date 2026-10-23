@@ -112,7 +112,7 @@ const setStart = (ms: number | null) => playback.setRangeStart(ms ?? 0)
           :value="startText()"
           @change="onTime($event, setStart, startText)">
       </label>
-      <label class="flex items-center gap-1.5" title="On s'atura (m:ss o segons). Buit: fins al final del darrer clip">
+      <label class="flex items-center gap-1.5" title="On s'atura (m:ss o segons); pot ser després del darrer clip. Buit: fins al final del darrer clip">
         Fi
         <input
           class="field time-field"

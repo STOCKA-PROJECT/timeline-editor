@@ -6,24 +6,24 @@ describe('normalizeRangeEnd', () => {
     [null, null],
     [Number.NaN, null],
     [30_000.4, 30_000],
-    [5_000, null], // equal to Inicio
-    [4_000, null], // before Inicio
-    [60_000, null], // the end of the show is the same as no «Fins»
-    [70_000, null] // past the end
-  ])('%s → %s (Inicio 5 s, show 60 s)', (input, expected) => {
-    expect(normalizeRangeEnd(input, 5_000, 60_000)).toBe(expected)
+    [5_000, null], // equal to Inici
+    [4_000, null], // before Inici
+    [60_000, 60_000], // the end of the show, typed on purpose
+    [70_000, 70_000] // after the last clip: silence before it repeats
+  ])('%s → %s (Inici 5 s)', (input, expected) => {
+    expect(normalizeRangeEnd(input, 5_000)).toBe(expected)
   })
 })
 
 describe('rangeEndOf', () => {
-  it('uses «Fins» when it is valid', () => {
+  it('uses «Fi» when it is after Inici, also past the last clip', () => {
     expect(rangeEndOf(30_000, 5_000, 60_000)).toBe(30_000)
+    expect(rangeEndOf(90_000, 5_000, 60_000)).toBe(90_000)
   })
 
-  it('falls back to the end of the show', () => {
+  it('empty, or no longer after Inici, it is the end of the last clip', () => {
     expect(rangeEndOf(null, 5_000, 60_000)).toBe(60_000)
-    expect(rangeEndOf(4_000, 5_000, 60_000)).toBe(60_000) // Inicio moved past it
-    expect(rangeEndOf(30_000, 0, 20_000)).toBe(20_000) // the show got shorter
+    expect(rangeEndOf(4_000, 5_000, 60_000)).toBe(60_000) // Inici moved past it
   })
 })
 
