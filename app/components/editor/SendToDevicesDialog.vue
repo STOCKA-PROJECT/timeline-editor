@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ShowIssue, ShowPackage } from '~/types/show'
 import { formatBytes } from '~/utils/bundle/formatBytes'
-import type { KnownDevice } from '~/utils/pi/deviceRegistry'
+import { showSync, type KnownDevice, type ShowSync } from '~/utils/pi/deviceRegistry'
 import { PiApiError, PiClient } from '~/utils/pi/piClient'
 import { sendShowToPi, type SendPhase } from '~/utils/pi/sendShow'
 
@@ -46,12 +46,30 @@ function reachable(d: KnownDevice): boolean | null {
   return probe ? probe.reachable : null
 }
 
+/** What the device has now compared with this show (only once it answered). */
+function syncOf(d: KnownDevice): ShowSync {
+  const info = devices.probes[d.deviceId]?.info
+  if (!info || info.device.deviceId !== d.deviceId) return 'unknown'
+  return showSync(
+    { activeHash: info.show.hash, activeTimelineId: info.show.timelineId ?? null },
+    { hash: pkg.value?.meta.hash ?? null, timelineId: scene.timelineId },
+    true)
+}
+
+function hasText(d: KnownDevice): { text: string, tone: string } | null {
+  const info = devices.probes[d.deviceId]?.info
+  switch (syncOf(d)) {
+    case 'current': return { text: 'Ja té aquest show tal com està ara.', tone: 'text-ok' }
+    case 'outdated': return { text: 'Té una versió antiga d’aquest timeline: s’actualitzarà.', tone: 'text-ink-soft' }
+    case 'other': return { text: `Té «${info?.show.name || 'un altre show'}», d’un altre timeline: si l’hi envies, el substituiràs.`, tone: 'text-warn' }
+    case 'none': return { text: 'No té cap show.', tone: 'text-ink-soft' }
+    default: return null
+  }
+}
+
 onMounted(async () => {
   window.addEventListener('keydown', onKey)
-  const probing = devices.probeAll().then(() => {
-    // Tick the ones that answer, unless the user already chose.
-    if (!rows.value.some(r => r.selected)) for (const r of rows.value) r.selected = reachable(r.device) === true
-  })
+  const probing = devices.probeAll()
   try {
     if (scene.dirty && !scene.conflict) await scene.save().catch(() => undefined)
     const result = await buildPackage()
@@ -64,6 +82,10 @@ onMounted(async () => {
     building.value = false
   }
   await probing
+  // Tick the ones that answer and do not play another timeline, unless the user already chose.
+  if (!rows.value.some(r => r.selected)) {
+    for (const r of rows.value) r.selected = reachable(r.device) === true && syncOf(r.device) !== 'other'
+  }
 })
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
@@ -190,6 +212,9 @@ async function sendAll() {
                   class="field field-sm field-code !w-28" placeholder="PIN" :aria-label="`PIN de ${r.device.name}`"
                   :disabled="running">
               </div>
+              <p v-if="r.state === 'idle' && hasText(r.device)" class="mt-1 text-[12px] leading-4" :class="hasText(r.device)!.tone">
+                {{ hasText(r.device)!.text }}
+              </p>
               <p v-if="r.state !== 'idle'" class="mt-1 flex items-center gap-2 text-[12px] leading-4">
                 <span class="badge" :class="r.state === 'done' ? 'badge-ok' : r.state === 'error' ? 'badge-danger' : 'badge-brand'">{{ PHASE[r.state] }}</span>
                 <span class="min-w-0" :class="r.state === 'error' ? 'text-danger' : 'text-ink-soft'">{{ r.message }}</span>

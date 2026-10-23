@@ -26,10 +26,11 @@ onMounted(async () => {
   }
 })
 
-const SYNC: Record<ShowSync, { label: string, badge: string } | null> = {
-  current: { label: 'Al dia', badge: 'badge-ok' },
-  other: { label: 'Un altre show', badge: 'badge-warn' },
-  none: { label: 'Sense show', badge: '' },
+const SYNC: Record<ShowSync, { label: string, badge: string, title: string } | null> = {
+  current: { label: 'Al dia', badge: 'badge-ok', title: 'Té aquest timeline tal com està ara' },
+  outdated: { label: 'Versió antiga', badge: 'badge-warn', title: 'Té aquest timeline, però d’abans dels últims canvis: torna-l’hi a enviar' },
+  other: { label: 'Un altre timeline', badge: 'badge-brand', title: 'Té un altre show: si li envies aquest, el substituiràs' },
+  none: { label: 'Sense show', badge: '', title: 'No té cap show actiu' },
   unknown: null
 }
 
@@ -39,7 +40,8 @@ function connectedNow(e: DeviceEntry): boolean {
 
 function syncOf(e: DeviceEntry) {
   // Known when the Pi answered now or Stocka has its last heartbeat.
-  return SYNC[showSync(e.activeHash, currentHash.value, e.reachable === true || e.registered)]
+  const current = { hash: currentHash.value, timelineId: scene.timelineId }
+  return SYNC[showSync(e, current, e.reachable === true || (e.registered && e.activeHash !== null))]
 }
 
 function detail(e: DeviceEntry): string {
@@ -48,7 +50,8 @@ function detail(e: DeviceEntry): string {
   else if (e.url) parts.push(e.reachable === null ? 'comprovant…' : e.reachable ? 'a l’abast' : 'no respon')
   if (e.url) parts.push(e.url.replace(/^https?:\/\//, ''))
   else parts.push('registrat a Stocka; no s’hi ha connectat des d’aquest ordinador')
-  if (e.activeName && syncOf(e)?.label !== 'Al dia') parts.push(`té «${e.activeName}»`)
+  if (e.activeName && syncOf(e) === SYNC.other) parts.push(`té «${e.activeName}»`)
+  if (e.reachable !== true && e.registered && e.activeHash) parts.push('segons l’últim avís a Stocka')
   if (e.cloudOnline) parts.push('en línia a Stocka')
   return parts.join(' · ')
 }
@@ -89,7 +92,7 @@ function choose(e: DeviceEntry) {
       <span class="min-w-0 flex-1">
         <span class="flex items-center gap-2">
           <span class="truncate font-medium">{{ e.name }}</span>
-          <span v-if="syncOf(e)" class="badge ml-auto flex-shrink-0" :class="syncOf(e)!.badge">{{ syncOf(e)!.label }}</span>
+          <span v-if="syncOf(e)" class="badge ml-auto flex-shrink-0" :class="syncOf(e)!.badge" :title="syncOf(e)!.title">{{ syncOf(e)!.label }}</span>
         </span>
         <span class="menu-hint truncate" :title="detail(e)">{{ detail(e) }}</span>
       </span>

@@ -28,7 +28,8 @@ export interface PiInfo {
   device: { deviceId: string, name: string, apSsid: string, apIp: string, netMode: string }
   board: string
   catalogVersion: number
-  show: { hash: string | null, name: string | null }
+  /** `timelineId`: the Stocka timeline the active show was exported from (absent on older players). */
+  show: { hash: string | null, name: string | null, timelineId?: number | null }
   state: PiState
 }
 

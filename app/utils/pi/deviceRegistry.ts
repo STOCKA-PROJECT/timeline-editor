@@ -25,6 +25,8 @@ export interface RegisteredDevice {
   lastSeenAt: string | null
   lastShowHash: string | null
   lastShowName: string | null
+  /** Absent on older backends; null when the player did not report it. */
+  lastShowTimelineId?: number | null
 }
 
 /** What a probe of the local address found. */
@@ -48,6 +50,8 @@ export interface DeviceEntry {
   reachable: boolean | null
   activeHash: string | null
   activeName: string | null
+  /** Stocka timeline the active show comes from, when the player reports it. */
+  activeTimelineId: number | null
   state: string | null
 }
 
@@ -97,6 +101,7 @@ export function mergeDevices(known: KnownDevice[], registered: RegisteredDevice[
       reachable: probe ? probe.reachable && same : null,
       activeHash: same ? probe!.info!.show.hash : null,
       activeName: same ? probe!.info!.show.name : null,
+      activeTimelineId: same ? probe!.info!.show.timelineId ?? null : null,
       state: same ? probe!.info!.state : null
     })
   }
@@ -110,6 +115,7 @@ export function mergeDevices(known: KnownDevice[], registered: RegisteredDevice[
       if (local.reachable !== true) {
         local.activeHash = r.lastShowHash
         local.activeName = r.lastShowName
+        local.activeTimelineId = r.lastShowTimelineId ?? null
       }
       continue
     }
@@ -123,19 +129,32 @@ export function mergeDevices(known: KnownDevice[], registered: RegisteredDevice[
       reachable: null,
       activeHash: r.lastShowHash,
       activeName: r.lastShowName,
+      activeTimelineId: r.lastShowTimelineId ?? null,
       state: null
     })
   }
   return [...out.values()].sort((a, b) => rank(a) - rank(b) || byName(a, b))
 }
 
-export type ShowSync = 'current' | 'other' | 'none' | 'unknown'
+/**
+ * What a device has compared with the open timeline: this show as it is now (`current`), an older
+ * version of this timeline (`outdated`), another timeline (`other`), nothing (`none`), or we do not
+ * know (`unknown`: not probed, no heartbeat). A show without timeline id (an older player, or a file
+ * exported outside Stocka) can only be `current` or `other`.
+ */
+export type ShowSync = 'current' | 'outdated' | 'other' | 'none' | 'unknown'
 
-/** Whether the device plays this timeline as it is now. */
-export function showSync(activeHash: string | null, currentHash: string | null, known: boolean): ShowSync {
+export interface ActiveShow {
+  activeHash: string | null
+  activeTimelineId: number | null
+}
+
+export function showSync(active: ActiveShow, current: { hash: string | null, timelineId: number | null }, known: boolean): ShowSync {
   if (!known) return 'unknown'
-  if (!activeHash) return 'none'
-  return currentHash && activeHash === currentHash ? 'current' : 'other'
+  if (!active.activeHash) return 'none'
+  if (current.hash && active.activeHash === current.hash) return 'current'
+  if (active.activeTimelineId != null && active.activeTimelineId === current.timelineId) return 'outdated'
+  return 'other'
 }
 
 /** Reachable first, then the ones with an address, then registered-only. */
