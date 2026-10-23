@@ -67,6 +67,17 @@ export interface FixtureProfile {
   notes?: string
 }
 
+/** A measured-sensor model (`profiles.sensor.<id>`): wiring, I2C addresses and measured quantities. */
+export interface SensorProfile {
+  name: string
+  wiring: 'i2c' | 'onewire' | 'trig_echo'
+  /** I2C models: accepted addresses, the first is the default. */
+  addresses?: number[]
+  quantities: Record<string, { unit: string, min: number, max: number }>
+  pollMs: number
+  notes?: string
+}
+
 export interface BoardSpec {
   name: string
   numbering: string
@@ -83,7 +94,7 @@ export interface OutputCatalog {
   version: number
   types: CatalogType[]
   kinds: Record<OutputKind, CatalogKind>
-  profiles?: { moving_head?: Record<string, FixtureProfile> }
+  profiles?: { moving_head?: Record<string, FixtureProfile>, sensor?: Record<string, SensorProfile> }
   excludedMethods: Record<string, string[]>
   boards: Record<string, BoardSpec>
 }
@@ -100,6 +111,11 @@ export function pinModeOf(spec: CatalogKind): PinMode {
 /** The DMX profile of a moving head, if the catalog knows it. */
 export function movingHeadProfile(id: unknown, outputCatalog: OutputCatalog = catalog): FixtureProfile | undefined {
   return typeof id === 'string' ? outputCatalog.profiles?.moving_head?.[id] : undefined
+}
+
+/** The model of a measured sensor, if the catalog knows it. */
+export function sensorProfile(id: unknown, outputCatalog: OutputCatalog = catalog): SensorProfile | undefined {
+  return typeof id === 'string' ? outputCatalog.profiles?.sensor?.[id] : undefined
 }
 
 export const DEFAULT_BOARD = 'rpi4b'

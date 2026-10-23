@@ -1,4 +1,4 @@
-import { actionParams, catalog as defaultCatalog, movingHeadProfile, pinModeOf, requiredParams, type CatalogParam, type OutputCatalog } from '~/types/catalog'
+import { actionParams, catalog as defaultCatalog, movingHeadProfile, pinModeOf, requiredParams, sensorProfile, type CatalogParam, type OutputCatalog, type SensorProfile } from '~/types/catalog'
 import { issue, type ShowIssue, type ShowPackage } from '~/types/show'
 
 // Semantic rules of a stocka-show package, mirroring `rpi4-system/contract/validate.py`. Runs on
@@ -12,6 +12,14 @@ const DMX_UNIVERSE = 512
 const MOTOR_PIN_KEYS = ['pinForward', 'pinReverse'] as const
 const MOTOR_CHANNEL_KEYS = ['channelForward', 'channelReverse'] as const
 const MOTOR_LIMIT_KEYS = ['limitForward', 'limitReverse'] as const
+const SENSOR_PIN_KEYS = ['pinTrig', 'pinEcho'] as const
+/** Keys only a `measured` sensor carries, and keys only a `digital` one carries. */
+const SENSOR_MEASURED_KEYS = ['model', 'quantity', 'bus', 'address', 'pinTrig', 'pinEcho', 'deviceId', 'threshold', 'activeWhen', 'hysteresis', 'pollMs']
+const SENSOR_DIGITAL_KEYS = ['expander', 'channel', 'activeLow', 'pull']
+/** Wiring of a sensor profile → connection keys it accepts (the rest of SENSOR_WIRING_KEYS are extra). */
+const SENSOR_WIRING: Record<SensorProfile['wiring'], string[]> = { i2c: ['bus', 'address'], onewire: ['pin', 'deviceId'], trig_echo: ['pinTrig', 'pinEcho'] }
+const SENSOR_WIRING_KEYS = ['pin', 'bus', 'address', 'deviceId', 'pinTrig', 'pinEcho']
+const ONEWIRE_ID = /^28-[0-9a-f]{12}$/
 /** Direction of a motor action → [hard-cut key, limit-switch key]. */
 const MOTOR_DIRECTIONS: Record<string, [string, string]> = {
   forward: ['maxTimeForward', 'limitForward'],
@@ -66,7 +74,73 @@ function pinsOf(name: string, entry: Hardware[string], hasPin: boolean): Array<[
       if (typeof entry[key] === 'number') out.push([`${name}.${key}`, entry[key] as number])
     }
   }
+  if (entry.kind === 'sensor') {
+    for (const key of SENSOR_PIN_KEYS) {
+      if (typeof entry[key] === 'number') out.push([`${name}.${key}`, entry[key] as number])
+    }
+  }
   return out
+}
+
+/** A sensor that reads a value through a model (`source: measured`). */
+export function isMeasured(entry: Hardware[string]): boolean {
+  return entry.kind === 'sensor' && (entry.source ?? 'digital') === 'measured'
+}
+
+/** The quantity a measured sensor watches: `quantity` or the only one of the model; null when unknown. */
+function sensorQuantity(entry: Hardware[string], profile: SensorProfile): string | null {
+  const quantities = Object.keys(profile.quantities)
+  if (entry.quantity === undefined) return quantities.length === 1 ? quantities[0]! : null
+  return typeof entry.quantity === 'string' && quantities.includes(entry.quantity) ? entry.quantity : null
+}
+
+/** Problems of a sensor according to its `source` (and, when measured, its model), in Catalan. Mirrors `sensor_problems`. */
+export function sensorProblems(entry: Hardware[string], catalog: OutputCatalog = defaultCatalog): string[] {
+  if (!isMeasured(entry)) {
+    const extra = SENSOR_MEASURED_KEYS.filter(k => k in entry)
+    return extra.length ? [`${extra.map(k => `«${k}»`).join(', ')} només té sentit amb source measured`] : []
+  }
+  const problems = SENSOR_DIGITAL_KEYS.filter(k => k in entry).map(k => `«${k}» és d'un sensor digital`)
+  const profile = sensorProfile(entry.model, catalog)
+  if (!profile) {
+    problems.push('necessita un «model» de profiles.sensor')
+    return problems
+  }
+  const model = String(entry.model)
+  const allowed = SENSOR_WIRING[profile.wiring] ?? []
+  for (const key of SENSOR_WIRING_KEYS) {
+    if (key in entry && !allowed.includes(key)) problems.push(`«${key}» no correspon al cablejat ${profile.wiring} del model ${model}`)
+  }
+  if (profile.wiring === 'onewire') {
+    if (!('pin' in entry)) problems.push('necessita «pin» (la línia DATA del 1-Wire)')
+    if ('deviceId' in entry && !(typeof entry.deviceId === 'string' && ONEWIRE_ID.test(entry.deviceId))) {
+      problems.push('«deviceId» ha de ser 28- seguit de 12 dígits hexadecimals')
+    }
+  } else if (profile.wiring === 'trig_echo') {
+    if (!('pinTrig' in entry) || !('pinEcho' in entry)) problems.push('necessita «pinTrig» i «pinEcho»')
+    else if (entry.pinTrig === entry.pinEcho) problems.push('«pinTrig» i «pinEcho» han de ser diferents')
+  } else if (profile.wiring === 'i2c') {
+    const addresses = profile.addresses ?? []
+    if ('address' in entry && addresses.length && !addresses.includes(entry.address as number)) {
+      problems.push(`el model ${model} només admet l'adreça I2C ${addresses.map(a => `0x${a.toString(16)}`).join(' o ')}`)
+    }
+  }
+  const measures = Object.keys(profile.quantities).join(', ')
+  const quantity = sensorQuantity(entry, profile)
+  if (quantity === null) {
+    problems.push('quantity' in entry
+      ? `el model ${model} no mesura ${String(entry.quantity)} (mesura ${measures})`
+      : `necessita «quantity»: el model ${model} mesura ${measures}`)
+  }
+  const threshold = entry.threshold
+  if (typeof threshold !== 'number' || !Number.isFinite(threshold)) {
+    problems.push('necessita «threshold»')
+  } else if (quantity !== null) {
+    const range = profile.quantities[quantity]!
+    if (threshold < range.min || threshold > range.max) problems.push(`«threshold» ha d'estar entre ${range.min} i ${range.max} ${range.unit}`)
+  }
+  if (entry.activeWhen !== 'above' && entry.activeWhen !== 'below') problems.push('necessita «activeWhen» (above o below)')
+  return problems
 }
 
 /** Expander channels an entry occupies: `[label, channel]` (relays, sensors and motors). */
@@ -126,6 +200,8 @@ export function validateShowPackage(pkg: ShowPackage, catalog: OutputCatalog = d
     const hasPin = typeof entry.pin === 'number'
     if (mode === 'required' && !hasPin) {
       issues.push(issue('error', 'E_CONFIG_INVALID', `El port «${name}» necessita «pin».`, { port: name }))
+    } else if (mode === 'optional' && isMeasured(entry)) {
+      // the wiring is checked by sensorProblems against the model
     } else if (mode === 'optional') {
       if ('expander' in entry) {
         if (hasPin) issues.push(issue('error', 'E_CONFIG_INVALID', `El port «${name}» no pot tenir «pin» i «expander» alhora.`, { port: name }))
@@ -173,29 +249,42 @@ export function validateShowPackage(pkg: ShowPackage, catalog: OutputCatalog = d
         issues.push(issue('error', 'E_MOTOR_OUTPUTS', `El motor «${name}»: ${why}.`, { port: name }))
       }
     }
+    if (entry.kind === 'sensor') {
+      for (const why of sensorProblems(entry, catalog)) {
+        issues.push(issue('error', 'E_SENSOR_CONFIG', `El sensor «${name}»: ${why}.`, { port: name }))
+      }
+    }
   }
   for (const [pin, labels] of usedPins) {
     if (labels.length > 1) issues.push(issue('error', 'E_PIN_DUPLICATE', `El pin ${pin} està usat per més d'un port: ${labels.join(', ')}.`))
   }
 
-  // --- expanders: unique addresses, unique channels, GPIO 2/3 reserved ----------------------
+  // --- I2C devices (expanders and measured sensors): unique addresses, GPIO 2/3 reserved ------
   const expanders = Object.entries(hardware).filter(([, e]) => e.kind === 'gpio_expander')
-  if (expanders.length > 0) {
+  const i2cDevices: Array<[string, number, number | null]> = expanders.map(([name, entry]) =>
+    [name, typeof entry.bus === 'number' ? entry.bus : 1, typeof entry.address === 'number' ? entry.address : null])
+  for (const [name, entry] of Object.entries(hardware)) {
+    const profile = isMeasured(entry) ? sensorProfile(entry.model, catalog) : undefined
+    if (profile?.wiring !== 'i2c' || ('bus' in entry && typeof entry.bus !== 'number')) continue
+    const address = typeof entry.address === 'number' ? entry.address : profile.addresses?.[0] ?? null
+    i2cDevices.push([name, typeof entry.bus === 'number' ? entry.bus : 1, address])
+  }
+  if (i2cDevices.length > 0) {
     for (const pin of I2C_PINS) {
       for (const label of usedPins.get(pin) ?? []) {
-        issues.push(issue('error', 'E_PIN_RESERVED', `El pin ${pin} de «${label}» és I2C i queda reservat quan hi ha un expansor.`, { port: label }))
+        issues.push(issue('error', 'E_PIN_RESERVED', `El pin ${pin} de «${label}» és I2C i queda reservat quan hi ha un expansor o un sensor I2C.`, { port: label }))
       }
     }
     const addresses = new Map<string, string[]>()
-    for (const [name, entry] of expanders) {
-      if (typeof entry.address !== 'number') continue
-      const key = `${typeof entry.bus === 'number' ? entry.bus : 1}:${entry.address}`
+    for (const [name, bus, address] of i2cDevices) {
+      if (address === null) continue
+      const key = `${bus}:${address}`
       addresses.set(key, [...(addresses.get(key) ?? []), name])
     }
     for (const [key, names] of addresses) {
       if (names.length > 1) {
         const [bus, address] = key.split(':')
-        issues.push(issue('error', 'E_I2C_ADDRESS_DUPLICATE', `L'adreça I2C 0x${Number(address).toString(16)} del bus ${bus} la fan servir més d'un expansor: ${names.join(', ')}.`))
+        issues.push(issue('error', 'E_I2C_ADDRESS_DUPLICATE', `L'adreça I2C 0x${Number(address).toString(16)} del bus ${bus} la fan servir més d'un dispositiu: ${names.join(', ')}.`))
       }
     }
   }

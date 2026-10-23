@@ -257,6 +257,64 @@ describe('validateShowPackage · contract v3 (expanders, moving heads, motors, s
   })
 })
 
+describe('validateShowPackage · measured sensors', () => {
+  const laser = { kind: 'sensor', source: 'measured', model: 'vl53l0x', threshold: 25, activeWhen: 'below', onActive: 'panic' } as const
+  function messages(p: ShowPackage) {
+    return validateShowPackage(p).map(i => i.message)
+  }
+
+  it('accepts every model with its own wiring, also as a motor limit', () => {
+    expect(codes(full((p) => {
+      p.hardware.Laser = { ...laser, hysteresis: 2, pollMs: 200 }
+      p.hardware.Sonar = { kind: 'sensor', source: 'measured', model: 'hc-sr04', pinTrig: 5, pinEcho: 6, threshold: 30, activeWhen: 'below', onActive: 'panic' }
+      p.hardware.Termo = { kind: 'sensor', source: 'measured', model: 'ds18b20', pin: 4, deviceId: '28-0123456789ab', threshold: 40, activeWhen: 'above', onActive: 'panic' }
+      p.hardware.Humitat = { kind: 'sensor', source: 'measured', model: 'bme280', quantity: 'humidity', address: 119, threshold: 80, activeWhen: 'above', onActive: 'panic' }
+      p.hardware.AngelDalt = { kind: 'sensor', source: 'measured', model: 'bme280', quantity: 'temperature', threshold: 30, activeWhen: 'above' }
+    }), 'error')).toEqual([])
+  })
+
+  it('reports each inconsistency as E_SENSOR_CONFIG with the messages of validate.py', () => {
+    const p = full((p) => {
+      p.hardware.A = { ...laser, pin: 9, pull: 'up', address: 48, threshold: 500 }
+      p.hardware.B = { kind: 'sensor', source: 'measured', model: 'bme280', threshold: 10, onActive: 'panic' }
+      p.hardware.C = { kind: 'sensor', source: 'measured', model: 'hc-sr04', pinTrig: 5, pinEcho: 5, threshold: 30, activeWhen: 'below', onActive: 'panic' }
+      p.hardware.D = { kind: 'sensor', source: 'measured', model: 'ds18b20', deviceId: '10-abc', threshold: 30, activeWhen: 'above', onActive: 'panic' }
+      p.hardware.E = { kind: 'sensor', source: 'measured', threshold: 1, activeWhen: 'above', onActive: 'panic' }
+      p.hardware.F = { kind: 'sensor', pin: 9, threshold: 3, onActive: 'panic' }
+      p.hardware.G = { ...laser, quantity: 'temperature' }
+    })
+    expect(messages(p)).toEqual(expect.arrayContaining([
+      'El sensor «A»: «pull» és d\'un sensor digital.',
+      'El sensor «A»: «pin» no correspon al cablejat i2c del model vl53l0x.',
+      'El sensor «A»: el model vl53l0x només admet l\'adreça I2C 0x29.',
+      'El sensor «A»: «threshold» ha d\'estar entre 3 i 200 cm.',
+      'El sensor «B»: necessita «quantity»: el model bme280 mesura temperature, humidity, pressure.',
+      'El sensor «B»: necessita «activeWhen» (above o below).',
+      'El sensor «C»: «pinTrig» i «pinEcho» han de ser diferents.',
+      'El sensor «D»: necessita «pin» (la línia DATA del 1-Wire).',
+      'El sensor «D»: «deviceId» ha de ser 28- seguit de 12 dígits hexadecimals.',
+      'El sensor «E»: necessita un «model» de profiles.sensor.',
+      'El sensor «F»: «threshold» només té sentit amb source measured.',
+      'El sensor «G»: el model vl53l0x no mesura temperature (mesura distance).',
+    ]))
+  })
+
+  it('TRIG/ECHO pins are pins; an I2C sensor reserves GPIO 2/3 and shares the address space', () => {
+    expect(messages(full((p) => {
+      p.hardware.Sonar = { kind: 'sensor', source: 'measured', model: 'hc-sr04', pinTrig: 5, pinEcho: 26, threshold: 30, activeWhen: 'below', onActive: 'panic' }
+    }))).toContain('El pin 26 està usat per més d\'un port: Sembra, Sonar.pinEcho.')
+    const i2c = pkg((p) => {
+      p.hardware.Calor = { kind: 'sensor', source: 'measured', model: 'bme280', quantity: 'temperature', threshold: 30, activeWhen: 'above', onActive: 'panic' }
+      p.hardware.Pressio = { kind: 'sensor', source: 'measured', model: 'bme280', quantity: 'pressure', threshold: 1000, activeWhen: 'below', onActive: 'panic' }
+      p.hardware.Sembra = { kind: 'relay', pin: 3 }
+    })
+    expect(messages(i2c)).toEqual(expect.arrayContaining([
+      'El pin 3 de «Sembra» és I2C i queda reservat quan hi ha un expansor o un sensor I2C.',
+      'L\'adreça I2C 0x76 del bus 1 la fan servir més d\'un dispositiu: Calor, Pressio.',
+    ]))
+  })
+})
+
 describe('validateShowPackage · relay double pulse', () => {
   /** The Pou event of the complete sample: double_pulse(0.3, 0.2, 0.3). */
   function doublePulse(p: ShowPackage) {

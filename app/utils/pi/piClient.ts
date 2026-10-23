@@ -38,7 +38,19 @@ export interface PiAlert {
   [extra: string]: unknown
 }
 
-export interface PiSensor { active: boolean, raw: boolean | null, onActive: string, blocked: boolean, address: string }
+export interface PiSensor {
+  active: boolean
+  raw: boolean | null
+  onActive: string
+  blocked: boolean
+  address: string
+  /** Measured sensors only: last value (null = no reading), unit and threshold. */
+  value?: number | null
+  unit?: string | null
+  quantity?: string | null
+  threshold?: number
+  activeWhen?: 'above' | 'below'
+}
 export interface PiMotor {
   direction: 'forward' | 'reverse' | null
   runningS: number
