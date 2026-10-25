@@ -37,12 +37,14 @@ const pi = usePiStore()
 const devices = useDevicesStore()
 const piOpen = ref(false)
 /** How the panel opens: on a device of the list, empty to type an address, or reconnecting the last one. */
-const piStart = ref<{ url?: string, manual?: boolean }>({})
+const piStart = ref<{ url?: string, manual?: boolean, target?: string }>({})
 const sendManyOpen = ref(false)
 
 function openDevice(entry: DeviceEntry) {
-  const already = pi.connected && pi.info?.device.deviceId === entry.deviceId
-  piStart.value = entry.url && !already ? { url: entry.url } : { manual: !entry.url && !already }
+  const already = pi.connected && pi.entry?.id === entry.id
+  piStart.value = entry.url && !already
+    ? { url: entry.url, target: entry.key }
+    : { manual: !entry.url && !already, target: entry.key }
   piOpen.value = true
 }
 
@@ -308,7 +310,7 @@ const statusTone = computed(() => {
       :file-name="issues.fileName"
       @close="issuesOpen = false" />
     <EditorBundleExportDialog v-if="bundleOpen" @close="bundleOpen = false" />
-    <EditorPiPanel v-if="piOpen" :connect-to="piStart.url" :manual="piStart.manual" @close="piOpen = false" />
+    <EditorPiPanel v-if="piOpen" :connect-to="piStart.url" :manual="piStart.manual" :target="piStart.target" @close="piOpen = false" />
     <EditorScheduleDialog v-if="scheduleOpen" @close="scheduleOpen = false" />
     <EditorSendToDevicesDialog v-if="sendManyOpen" @close="sendManyOpen = false" />
     <EditorSyncConflictDialog v-if="scene.pendingMerge" />

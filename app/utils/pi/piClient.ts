@@ -282,6 +282,11 @@ export class PiClient {
     return data.alerts ?? []
   }
 
+  /** Points the Pi's heartbeat at Stocka: it reports there whenever it has Internet. */
+  configureHeartbeat(heartbeatUrl: string, heartbeatToken: string): Promise<unknown> {
+    return this.request('POST', '/api/device', { json: { heartbeatUrl, heartbeatToken }, pin: true })
+  }
+
   /** Checks the PIN against the Pi (opens and forgets a session). */
   async checkPin(pin: string): Promise<boolean> {
     try {

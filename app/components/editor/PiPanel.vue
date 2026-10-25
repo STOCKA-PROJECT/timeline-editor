@@ -8,12 +8,16 @@ import { formatPiTime, scheduleSummary } from '~/utils/schedule'
 // «Raspberry»: the belén Pi on the local network, straight from the editor. Send the open show
 // (only what the Pi lacks travels), start or stop it, see its alerts and follow its log live. Needs
 // the laptop and the Pi on the same network (the phone's hotspot, or the Pi's own Wi-Fi), not Internet.
+// The address and PIN of the devices saved in Stocka come filled in; a new address or PIN is saved
+// back from here, and a Pi that is not in the organization can be added to it.
 
 const props = defineProps<{
   /** Connect to this address on opening (a device chosen in «Dispositius»). */
   connectTo?: string
   /** Open without connecting, to type the address of another Pi. */
   manual?: boolean
+  /** Key of the saved device it was opened for: the first guess when the Pi is not linked yet. */
+  target?: string
 }>()
 const emit = defineEmits<{ close: [] }>()
 
@@ -31,6 +35,43 @@ const buildWarnings = ref<ShowIssue[]>([])
 const building = ref(false)
 const logBox = ref<HTMLElement | null>(null)
 const followLog = ref(true)
+/** «Desa a Stocka» for a Pi that is not linked: a saved device no Pi claimed yet, or a new one (null). */
+const linkChoice = ref<number | null>(null)
+const saving = ref(false)
+const stockaNote = ref<string | null>(null)
+
+/** The address it answers at differs from the one saved in Stocka. */
+const addressChanged = computed(() => !!pi.entry && pi.connected && pi.entry.url !== pi.url)
+
+// A different Pi (or none): start over. Saving it to Stocka keeps the same Pi and its message.
+watch(() => pi.info?.device.deviceId, () => {
+  stockaNote.value = null
+  devices.saveError = null
+  const target = props.target ? devices.unbound.find(e => e.key === props.target) : undefined
+  linkChoice.value = target?.id ?? null
+}, { immediate: true })
+
+async function saveAddress() {
+  saving.value = true
+  stockaNote.value = null
+  try {
+    const outcome = await pi.saveAddress()
+    if (outcome === 'saved') stockaNote.value = 'Adreça desada a Stocka.'
+    else if (outcome === 'queued') stockaNote.value = 'Adreça desada en aquest navegador; s’enviarà a Stocka quan hi hagi connexió.'
+  } finally {
+    saving.value = false
+  }
+}
+
+async function saveToStocka() {
+  saving.value = true
+  stockaNote.value = null
+  try {
+    stockaNote.value = await pi.saveToStocka(linkChoice.value)
+  } finally {
+    saving.value = false
+  }
+}
 
 const STATE_LABEL: Record<string, string> = {
   BOOT: 'Arrencant', SAFE: 'En segur', IDLE: 'En repòs', PLAYING: 'Reproduint', TEST: 'Mode prova', ERROR: 'Error'
@@ -164,6 +205,7 @@ function onKey(e: KeyboardEvent) {
 
 onMounted(async () => {
   window.addEventListener('keydown', onKey)
+  void devices.loadRegistered(scene.orgSlug)
   if (props.connectTo) {
     pi.disconnect()
     await connect(props.connectTo)
@@ -178,14 +220,6 @@ onMounted(async () => {
   }
 })
 
-/** Removes the connected Pi from this laptop's list (it reappears on the next connection). */
-function forgetDevice() {
-  const id = pi.info?.device.deviceId
-  if (!id) return
-  pi.disconnect()
-  devices.forget(id)
-  address.value = ''
-}
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey)
   pi.stopLogs()
@@ -221,16 +255,42 @@ onBeforeUnmount(() => {
             <div class="flex flex-wrap gap-1">
               <button v-for="u in DEFAULT_PI_URLS" :key="u" type="button" class="btn btn-sm btn-quiet font-mono !text-[12px]" @click="connect(u)">{{ u.replace('http://', '') }}</button>
             </div>
-            <div v-if="pi.connected && pi.info" class="flex items-center gap-2 text-[12px] leading-4 text-ink-soft">
-              <span class="min-w-0">
+            <template v-if="pi.connected && pi.info">
+              <p class="text-[12px] leading-4 text-ink-soft">
                 {{ pi.info.device.name }} · versió <code class="font-mono">{{ pi.info.version }}</code> · contracte v{{ pi.info.catalogVersion }}
                 <span v-if="pi.info.simulate" class="badge badge-warn ml-1">simulada</span>
-              </span>
-              <button
-                type="button" class="btn btn-sm btn-quiet ml-auto flex-shrink-0"
-                title="La treu de la llista de dispositius d’aquest ordinador (hi tornarà en connectar-t’hi)"
-                @click="forgetDevice()">Treu de la llista</button>
-            </div>
+              </p>
+              <!-- Stocka: the saved device it is, or saving it -->
+              <div class="space-y-1.5 rounded-[6px] border border-line bg-bg-alt px-3 py-2 text-[12.5px] leading-[17px]">
+                <template v-if="pi.entry">
+                  <p class="text-ink">
+                    <span class="badge badge-ok mr-1">A Stocka</span>
+                    Desada com a «{{ pi.entry.name }}»: l’adreça i el PIN es comparteixen amb tots els ordinadors i mòbils de l’organització.
+                  </p>
+                  <div v-if="addressChanged" class="flex flex-wrap items-center gap-2">
+                    <span class="text-ink-soft">
+                      A Stocka hi consta <code class="font-mono">{{ pi.entry.url ? pi.entry.url.replace(/^https?:\/\//, '') : 'cap adreça' }}</code>.
+                    </span>
+                    <button type="button" class="btn btn-sm" :disabled="saving" @click="saveAddress()">
+                      Desa {{ pi.url.replace(/^https?:\/\//, '') }}
+                    </button>
+                  </div>
+                </template>
+                <template v-else>
+                  <p class="text-ink">Aquesta Raspberry no és a l’organització. Desa-la perquè surti a «Dispositius» a tots els ordinadors i mòbils, amb l’adreça i el PIN.</p>
+                  <form class="flex flex-wrap items-center gap-2" @submit.prevent="saveToStocka()">
+                    <select v-model="linkChoice" class="field field-sm min-w-0 flex-1" aria-label="Com es desa a Stocka">
+                      <option :value="null">Com a dispositiu nou («{{ pi.info.device.name }}»)</option>
+                      <option v-for="e in devices.unbound" :key="e.key" :value="e.id">És «{{ e.name }}»</option>
+                    </select>
+                    <button type="submit" class="btn btn-sm btn-primary" :disabled="saving">{{ saving ? 'Desant…' : 'Desa a Stocka' }}</button>
+                  </form>
+                  <p v-if="linkChoice === null" class="text-ink-muted">Afegir-ne un de nou ho pot fer el propietari o un gestor; cal connexió amb Stocka.</p>
+                </template>
+                <p v-if="stockaNote" class="text-ink-soft">{{ stockaNote }}</p>
+                <p v-if="devices.saveError" class="text-danger" role="alert">{{ devices.saveError }}</p>
+              </div>
+            </template>
             <p v-else class="text-[12px] leading-4 text-ink-muted">
               El portàtil i la Raspberry han d’estar a la mateixa xarxa (el punt d’accés del mòbil o la Wi-Fi <strong>belen</strong>).
               La primera vegada Chrome demana permís per accedir a la xarxa local: accepta’l.
@@ -242,15 +302,17 @@ onBeforeUnmount(() => {
             <h3 id="pi-pin" class="label">PIN</h3>
             <div v-if="pi.pinVerified" class="flex items-center gap-2 text-[13px] leading-[18px] text-ink">
               <span class="badge badge-ok">PIN correcte</span>
-              <span class="text-ink-soft">d’aquest dispositiu; es recorda fins que tanquis el navegador</span>
-              <button type="button" class="btn btn-sm btn-quiet ml-auto" @click="pi.forgetPin()">Oblida’l</button>
+              <span class="text-ink-soft">{{ pi.entry ? 'desat a Stocka amb el dispositiu' : 'es recorda fins que tanquis el navegador' }}</span>
+              <button type="button" class="btn btn-sm btn-quiet ml-auto" @click="pi.forgetPin()">Canvia’l</button>
             </div>
             <form v-else class="flex items-center gap-2" @submit.prevent="savePin()">
               <input
                 v-model="pinInput" type="password" inputmode="numeric" autocomplete="off"
                 class="field field-sm field-code w-32" aria-label="PIN de la Raspberry" placeholder="PIN">
               <button type="submit" class="btn btn-sm" :disabled="!pinInput.trim()">Desa</button>
-              <span class="text-[12px] leading-4 text-ink-muted">Cal per enviar el show i per les ordres. És a l’etiqueta de la caixa.</span>
+              <span class="text-[12px] leading-4 text-ink-muted">
+                Cal per enviar el show i per les ordres. És a l’etiqueta de la caixa.{{ pi.entry ? ' Es desarà a Stocka.' : '' }}
+              </span>
             </form>
           </section>
 

@@ -27,12 +27,12 @@ export const useAuthStore = defineStore('auth', () => {
     userCookie.value = null
   }
 
-  /** Exchanges a handoff ticket for a session via the BFF. */
+  /** Exchanges a handoff ticket for a session via the BFF; on a phone the session lasts 30 days. */
   async function exchangeTicket(ticket: string): Promise<void> {
     const api = useApi()
     const data = await api<SessionResponse>('/auth/exchange', {
       method: 'POST',
-      body: { ticket }
+      body: { ticket, rememberMe: isMobileDevice() }
     })
     setSession(data)
   }

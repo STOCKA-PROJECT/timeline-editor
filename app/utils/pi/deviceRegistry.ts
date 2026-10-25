@@ -1,22 +1,13 @@
 import type { PiInfo } from '~/utils/pi/piClient'
 
-// The belén players the editor knows about, from two sources:
-//   - the Pis this laptop has connected to (kept in the browser: id, name, local address);
-//   - the devices registered in Stocka for the organization (they know no local address, only what
-//     their heartbeat reported when they had Internet).
-// Both are matched by the Pi's `deviceId` (the uuid of its `device.json`). One timeline can be sent
-// to any number of them.
+// The belén players the editor can send this timeline to are the devices saved in Stocka for the
+// organization (`GET /organizations/{org}/devices`): each one carries where it answers on the local
+// network and its PIN, so every computer and phone of the organization finds it configured. The list
+// is cached for offline use (at the belén the Pi has no Internet, and often neither has the laptop).
+// A registered device is matched with the Pi that answers at its address by the Pi's `deviceId` (the
+// uuid of its `device.json`); one that never reported it accepts whichever Pi answers there.
 
-/** A Pi this laptop has reached on the local network. */
-export interface KnownDevice {
-  deviceId: string
-  name: string
-  url: string
-  /** ISO instant of the last time it answered. */
-  lastSeenAt: string
-}
-
-/** A device registered in Stocka (`GET /organizations/{org}/devices`). */
+/** A device saved in Stocka (`GET /organizations/{org}/devices`). */
 export interface RegisteredDevice {
   id: number
   deviceId: string | null
@@ -27,27 +18,49 @@ export interface RegisteredDevice {
   lastShowName: string | null
   /** Absent on older backends; null when the player did not report it. */
   lastShowTimelineId?: number | null
+  /** Where it answers on the local network (`http://belen.local:8080`); absent on older backends. */
+  localUrl?: string | null
+  /** Its PIN; null when none is saved or the user may not see it (SPECTATOR). */
+  pin?: string | null
+  hasPin?: boolean
 }
 
-/** What a probe of the local address found. */
+/** Address, PIN and uuid the editor saves on a registered device (`PATCH …/devices/{id}/connection`). */
+export interface DeviceConnection {
+  localUrl?: string
+  pin?: string
+  deviceId?: string
+}
+
+/**
+ * Changes saved without a connection to Stocka (the laptop or phone on the Pi's own Wi-Fi), keyed by
+ * device id; they are sent as soon as Stocka answers again.
+ */
+export type PendingConnections = Record<string, DeviceConnection>
+
+/** What a probe of the saved address found. */
 export interface DeviceProbe {
   reachable: boolean
   info: PiInfo | null
 }
 
 export interface DeviceEntry {
-  /** Stable key: the deviceId, or `stocka:<id>` for a registered device that never reported one. */
+  /** `stocka:<id>`: stable even before the device reported its uuid. */
   key: string
+  /** Stocka id of the device. */
+  id: number
   deviceId: string | null
   name: string
-  /** Local address, when this laptop has reached it before. */
+  /** Local address saved in Stocka. */
   url: string | null
-  /** Registered in Stocka. */
-  registered: boolean
+  /** PIN saved in Stocka (or typed in this session). */
+  pin: string | null
   /** Stocka saw a heartbeat in the last minutes (it has Internet). */
   cloudOnline: boolean
-  /** Reachable on the local network right now; null until probed (or without address). */
+  /** Its Pi answers at the address right now; null until probed (or without address). */
   reachable: boolean | null
+  /** Name of another Pi that answers at the saved address instead. */
+  otherAtUrl: string | null
   activeHash: string | null
   activeName: string | null
   /** Stocka timeline the active show comes from, when the player reports it. */
@@ -55,85 +68,98 @@ export interface DeviceEntry {
   state: string | null
 }
 
-/** Remembers (or refreshes) the Pi that answered `info` at `url`, keeping the list sorted by name. */
-export function rememberDevice(list: KnownDevice[], info: PiInfo, url: string, now: Date = new Date()): KnownDevice[] {
-  const entry: KnownDevice = { deviceId: info.device.deviceId, name: info.device.name, url, lastSeenAt: now.toISOString() }
-  return [...list.filter(d => d.deviceId !== entry.deviceId), entry].sort(byName)
+export function entryKey(id: number): string {
+  return `stocka:${id}`
 }
 
-export function forgetDevice(list: KnownDevice[], deviceId: string): KnownDevice[] {
-  return list.filter(d => d.deviceId !== deviceId)
-}
-
-/** Reads the stored list, dropping anything malformed. */
-export function parseKnownDevices(raw: string | null): KnownDevice[] {
-  if (!raw) return []
-  try {
-    const data = JSON.parse(raw) as unknown
-    if (!Array.isArray(data)) return []
-    return data.filter((d): d is KnownDevice =>
-      !!d && typeof d === 'object'
-      && typeof (d as KnownDevice).deviceId === 'string' && !!(d as KnownDevice).deviceId
-      && typeof (d as KnownDevice).name === 'string'
-      && typeof (d as KnownDevice).url === 'string' && !!(d as KnownDevice).url
-      && typeof (d as KnownDevice).lastSeenAt === 'string')
-  } catch {
-    return []
-  }
+/** Whether the Pi that answered `info` is this device (an unbound device takes any Pi). */
+export function isSameDevice(device: { deviceId: string | null }, info: PiInfo): boolean {
+  return !device.deviceId || device.deviceId === info.device.deviceId
 }
 
 /**
- * One entry per device: local and registered ones merged by deviceId; a probe only counts when the
- * Pi at that address is the same device (another Pi may answer at `belen.local` now).
+ * The registered device a connected Pi is: the one bound to its uuid or, failing that, an unbound one
+ * saved at the address it answered at.
  */
-export function mergeDevices(known: KnownDevice[], registered: RegisteredDevice[], probes: Record<string, DeviceProbe> = {}): DeviceEntry[] {
-  const out = new Map<string, DeviceEntry>()
-  for (const d of known) {
-    const probe = probes[d.deviceId]
-    const same = probe?.info?.device.deviceId === d.deviceId
-    out.set(d.deviceId, {
-      key: d.deviceId,
-      deviceId: d.deviceId,
-      name: same ? probe!.info!.device.name : d.name,
-      url: d.url,
-      registered: false,
-      cloudOnline: false,
-      reachable: probe ? probe.reachable && same : null,
-      activeHash: same ? probe!.info!.show.hash : null,
-      activeName: same ? probe!.info!.show.name : null,
-      activeTimelineId: same ? probe!.info!.show.timelineId ?? null : null,
-      state: same ? probe!.info!.state : null
-    })
-  }
-  for (const r of registered) {
-    const key = r.deviceId ?? `stocka:${r.id}`
-    const local = out.get(key)
-    if (local) {
-      local.registered = true
-      local.cloudOnline = r.online
-      // What the Pi says live wins over its last heartbeat.
-      if (local.reachable !== true) {
-        local.activeHash = r.lastShowHash
-        local.activeName = r.lastShowName
-        local.activeTimelineId = r.lastShowTimelineId ?? null
+export function matchRegistered(registered: RegisteredDevice[], info: PiInfo, url: string): RegisteredDevice | null {
+  return registered.find(r => r.deviceId === info.device.deviceId)
+    ?? registered.find(r => !r.deviceId && !!r.localUrl && r.localUrl === url)
+    ?? null
+}
+
+/** Adds `change` to what is already pending for device `id` (later values win). */
+export function queueConnection(pending: PendingConnections, id: number, change: DeviceConnection): PendingConnections {
+  return { ...pending, [String(id)]: { ...pending[String(id)], ...change } }
+}
+
+/** Reads the stored queue, dropping anything malformed. */
+export function parsePendingConnections(raw: string | null): PendingConnections {
+  if (!raw) return {}
+  try {
+    const data = JSON.parse(raw) as unknown
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return {}
+    const out: PendingConnections = {}
+    for (const [id, value] of Object.entries(data)) {
+      if (!/^\d+$/.test(id) || !value || typeof value !== 'object' || Array.isArray(value)) continue
+      const change: DeviceConnection = {}
+      for (const field of ['localUrl', 'pin', 'deviceId'] as const) {
+        const v = (value as Record<string, unknown>)[field]
+        if (typeof v === 'string') change[field] = v
       }
-      continue
+      if (Object.keys(change).length) out[id] = change
     }
-    out.set(key, {
-      key,
-      deviceId: r.deviceId,
-      name: r.name,
-      url: null,
-      registered: true,
-      cloudOnline: r.online,
-      reachable: null,
-      activeHash: r.lastShowHash,
-      activeName: r.lastShowName,
-      activeTimelineId: r.lastShowTimelineId ?? null,
-      state: null
-    })
+    return out
+  } catch {
+    return {}
   }
-  return [...out.values()].sort((a, b) => rank(a) - rank(b) || byName(a, b))
+}
+
+/** The registered devices as they will be once the pending changes reach Stocka (empty = removed). */
+export function applyPending(registered: RegisteredDevice[], pending: PendingConnections): RegisteredDevice[] {
+  return registered.map((r) => {
+    const change = pending[String(r.id)]
+    if (!change) return r
+    const next = { ...r }
+    if (change.localUrl !== undefined) next.localUrl = change.localUrl || null
+    if (change.pin !== undefined) {
+      next.pin = change.pin || null
+      next.hasPin = !!change.pin
+    }
+    if (change.deviceId) next.deviceId = change.deviceId
+    return next
+  })
+}
+
+/**
+ * One entry per registered device with what its Pi says live (when the probe reached the same Pi) or,
+ * otherwise, what its last heartbeat told Stocka. `pins` are PINs typed in this session, which win over
+ * the saved ones (they were checked against the Pi).
+ */
+export function deviceEntries(registered: RegisteredDevice[], probes: Record<string, DeviceProbe> = {}, pins: Record<string, string> = {}): DeviceEntry[] {
+  const out = registered.map((r): DeviceEntry => {
+    const key = entryKey(r.id)
+    const url = r.localUrl || null
+    const probe = url ? probes[key] : undefined
+    const live = probe?.info && isSameDevice(r, probe.info) ? probe.info : null
+    const reachable = probe ? probe.reachable && !!live : null
+    return {
+      key,
+      id: r.id,
+      deviceId: r.deviceId ?? live?.device.deviceId ?? null,
+      name: r.name,
+      url,
+      pin: pins[key] ?? r.pin ?? null,
+      cloudOnline: r.online,
+      reachable,
+      otherAtUrl: probe?.info && !live ? probe.info.device.name : null,
+      // What the Pi says live wins over its last heartbeat.
+      activeHash: reachable ? live!.show.hash : r.lastShowHash,
+      activeName: reachable ? live!.show.name : r.lastShowName,
+      activeTimelineId: reachable ? live!.show.timelineId ?? null : r.lastShowTimelineId ?? null,
+      state: reachable ? live!.state : null
+    }
+  })
+  return out.sort((a, b) => rank(a) - rank(b) || byName(a, b))
 }
 
 /**
@@ -157,7 +183,7 @@ export function showSync(active: ActiveShow, current: { hash: string | null, tim
   return 'other'
 }
 
-/** Reachable first, then the ones with an address, then registered-only. */
+/** Reachable first, then the ones with an address, then the ones without. */
 function rank(e: DeviceEntry): number {
   if (e.reachable) return 0
   return e.url ? 1 : 2

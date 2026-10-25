@@ -37,12 +37,12 @@ const label = computed(() => {
   return rehearsal.value ? 'Torna a provar' : 'Prova'
 })
 
-/** Devices this laptop can reach by address (a registered-only one has none to rehearse on). */
+/** Saved devices with an address (one without has nowhere to rehearse on). */
 const choices = computed(() => devices.entries.filter(e => e.url))
 const targetName = computed(() => (pi.connected ? pi.info?.device.name ?? 'dispositiu' : null))
 
 function isTarget(e: DeviceEntry): boolean {
-  return pi.connected && !!e.deviceId && pi.info?.device.deviceId === e.deviceId
+  return pi.connected && pi.entry?.id === e.id
 }
 
 function onMenuOpen() {

@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import type { ShowIssue, ShowPackage } from '~/types/show'
 import { formatBytes } from '~/utils/bundle/formatBytes'
-import { showSync, type KnownDevice, type ShowSync } from '~/utils/pi/deviceRegistry'
+import { showSync, type DeviceEntry, type ShowSync } from '~/utils/pi/deviceRegistry'
 import { PiApiError, PiClient } from '~/utils/pi/piClient'
 import { sendShowToPi, type SendPhase } from '~/utils/pi/sendShow'
 
-// «Envia el show a diversos»: the open show, built once, sent one device after another to every Pi
-// the user ticks (only what each one lacks travels). Each device needs its own PIN; the ones already
-// given in this session are reused.
+// «Envia el show a diversos»: the open show, built once, sent one device after another to every saved
+// Pi the user ticks (only what each one lacks travels). Each device needs its own PIN: the one saved in
+// Stocka comes filled in, and one typed here is saved once the Pi accepts it.
 
 const emit = defineEmits<{ close: [] }>()
 
@@ -17,9 +17,9 @@ const auth = useAuthStore()
 const { buildPackage, fetchAsset } = useShowPackageBuilder()
 
 type RowState = 'idle' | SendPhase | 'done' | 'error'
-interface Row { device: KnownDevice, selected: boolean, pin: string, state: RowState, message: string }
+interface Row { device: DeviceEntry, selected: boolean, pin: string, state: RowState, message: string }
 
-const rows = ref<Row[]>(devices.known.map(d => ({ device: d, selected: false, pin: devices.pinFor(d.deviceId) ?? '', state: 'idle', message: '' })))
+const rows = ref<Row[]>(devices.entries.filter(e => e.url).map(e => ({ device: e, selected: false, pin: e.pin ?? '', state: 'idle', message: '' })))
 const activate = ref(true)
 const building = ref(true)
 const running = ref(false)
@@ -41,23 +41,27 @@ const PHASE: Record<RowState, string> = {
 const chosen = computed(() => rows.value.filter(r => r.selected))
 const finished = computed(() => rows.value.some(r => r.state === 'done' || r.state === 'error') && !running.value)
 
-function reachable(d: KnownDevice): boolean | null {
-  const probe = devices.probes[d.deviceId]
-  return probe ? probe.reachable : null
+/** The device as the store sees it now (the probes started on opening update it). */
+function live(d: DeviceEntry): DeviceEntry {
+  return devices.entryOf(d.id) ?? d
+}
+
+function reachable(d: DeviceEntry): boolean | null {
+  return live(d).reachable
 }
 
 /** What the device has now compared with this show (only once it answered). */
-function syncOf(d: KnownDevice): ShowSync {
-  const info = devices.probes[d.deviceId]?.info
-  if (!info || info.device.deviceId !== d.deviceId) return 'unknown'
+function syncOf(d: DeviceEntry): ShowSync {
+  const info = live(d).reachable ? devices.probes[d.key]?.info : null
+  if (!info) return 'unknown'
   return showSync(
     { activeHash: info.show.hash, activeTimelineId: info.show.timelineId ?? null },
     { hash: pkg.value?.meta.hash ?? null, timelineId: scene.timelineId },
     true)
 }
 
-function hasText(d: KnownDevice): { text: string, tone: string } | null {
-  const info = devices.probes[d.deviceId]?.info
+function hasText(d: DeviceEntry): { text: string, tone: string } | null {
+  const info = devices.probes[d.key]?.info
   switch (syncOf(d)) {
     case 'current': return { text: 'Ja té aquest show tal com està ara.', tone: 'text-ok' }
     case 'outdated': return { text: 'Té una versió antiga d’aquest timeline: s’actualitzarà.', tone: 'text-ink-soft' }
@@ -108,20 +112,22 @@ async function sendOne(row: Row, show: ShowPackage) {
   }
   row.state = 'checking'
   try {
-    const client = new PiClient(row.device.url, { pin, name: actorName() })
+    const url = row.device.url!
+    const client = new PiClient(url, { pin, name: actorName() })
     const info = await client.info()
-    if (info.device.deviceId !== row.device.deviceId) {
+    const deviceId = live(row.device).deviceId
+    if (deviceId && info.device.deviceId !== deviceId) {
       row.state = 'error'
-      row.message = `A ${row.device.url.replace(/^https?:\/\//, '')} ara hi respon «${info.device.name}», no aquesta Raspberry.`
-      devices.remember(info, row.device.url)
+      row.message = `A ${url.replace(/^https?:\/\//, '')} ara hi respon «${info.device.name}», no aquesta Raspberry.`
       return
     }
+    devices.noteAnswer(row.device, info)
     if (!(await client.checkPin(pin))) {
       row.state = 'error'
       row.message = 'PIN incorrecte.'
       return
     }
-    devices.setPin(row.device.deviceId, pin)
+    void devices.rememberPin(row.device, pin)
     const result = await sendShowToPi({
       client,
       pkg: show,
@@ -139,7 +145,7 @@ async function sendOne(row: Row, show: ShowPackage) {
     const activated = result.status === 'already' ? result.activated : result.report.activated
     const sent = result.status === 'sent' ? `enviat (${formatBytes(result.bytes)})` : 'ja el tenia'
     row.message = `${sent} · ${activated ? 'és el show actiu' : info.state === 'PLAYING' ? 'no s’ha activat: s’estava reproduint' : 'no s’ha activat'}`
-    devices.remember(await client.info(), row.device.url)
+    devices.noteAnswer(row.device, await client.info())
   } catch (e) {
     row.state = 'error'
     row.message = e instanceof PiApiError || e instanceof Error ? e.message : 'No s’ha pogut enviar.'
@@ -193,16 +199,16 @@ async function sendAll() {
           </p>
 
           <p v-if="!rows.length" class="text-[13px] leading-[18px] text-ink-soft">
-            Aquest ordinador encara no s’ha connectat a cap Raspberry. Connecta-t’hi primer des de «Dispositius».
+            Cap dels dispositius de l’organització té adreça. Posa-la-hi a Stocka (Dispositius) o connecta-t’hi des de «Dispositius» i desa-la.
           </p>
           <ul v-else class="space-y-2" aria-label="Dispositius">
-            <li v-for="r in rows" :key="r.device.deviceId" class="rounded-[6px] border px-3 py-2" :class="r.selected ? 'border-accent' : 'border-line'">
+            <li v-for="r in rows" :key="r.device.key" class="rounded-[6px] border px-3 py-2" :class="r.selected ? 'border-accent' : 'border-line'">
               <div class="flex items-center gap-2 text-[13px] leading-[18px]">
-                <input :id="`dev-${r.device.deviceId}`" v-model="r.selected" type="checkbox" :disabled="running">
-                <label :for="`dev-${r.device.deviceId}`" class="min-w-0 flex-1 cursor-pointer">
+                <input :id="`dev-${r.device.id}`" v-model="r.selected" type="checkbox" :disabled="running">
+                <label :for="`dev-${r.device.id}`" class="min-w-0 flex-1 cursor-pointer">
                   <span class="block truncate font-medium text-ink">{{ r.device.name }}</span>
                   <span class="block truncate text-[12px] leading-4 text-ink-muted">
-                    {{ r.device.url.replace(/^https?:\/\//, '') }} ·
+                    {{ r.device.url?.replace(/^https?:\/\//, '') }} ·
                     {{ reachable(r.device) === null ? 'comprovant…' : reachable(r.device) ? 'a l’abast' : 'no respon' }}
                   </span>
                 </label>

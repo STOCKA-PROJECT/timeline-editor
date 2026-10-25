@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { showSync, type DeviceEntry, type ShowSync } from '~/utils/pi/deviceRegistry'
 
-// Content of the «Dispositius» dropdown: every belén player this timeline can go to, whether it is
-// reachable now and whether it already plays this show as it is. Opening one connects the panel to
-// it; «Envia a diversos» sends the show to several in a row.
+// Content of the «Dispositius» dropdown: the belén players saved in the organization (with their
+// address and PIN, also on phones), whether each is reachable now and whether it already plays this
+// show as it is. Opening one connects the panel to it; «Envia a diversos» sends the show to several.
 
 const props = defineProps<{ close: () => void }>()
 const emit = defineEmits<{ openDevice: [entry: DeviceEntry], newDevice: [], sendMany: [] }>()
@@ -35,23 +35,25 @@ const SYNC: Record<ShowSync, { label: string, badge: string, title: string } | n
 }
 
 function connectedNow(e: DeviceEntry): boolean {
-  return pi.connected && !!e.deviceId && pi.info?.device.deviceId === e.deviceId
+  return pi.connected && pi.entry?.id === e.id
 }
 
 function syncOf(e: DeviceEntry) {
   // Known when the Pi answered now or Stocka has its last heartbeat.
   const current = { hash: currentHash.value, timelineId: scene.timelineId }
-  return SYNC[showSync(e, current, e.reachable === true || (e.registered && e.activeHash !== null))]
+  return SYNC[showSync(e, current, e.reachable === true || e.activeHash !== null)]
 }
 
 function detail(e: DeviceEntry): string {
   const parts: string[] = []
   if (connectedNow(e)) parts.push('connectat')
+  else if (e.otherAtUrl) parts.push(`hi respon «${e.otherAtUrl}»`)
   else if (e.url) parts.push(e.reachable === null ? 'comprovant…' : e.reachable ? 'a l’abast' : 'no respon')
   if (e.url) parts.push(e.url.replace(/^https?:\/\//, ''))
-  else parts.push('registrat a Stocka; no s’hi ha connectat des d’aquest ordinador')
+  else parts.push('sense adreça: obre’l per posar-la-hi')
+  if (e.url && !e.pin) parts.push('sense PIN')
   if (e.activeName && syncOf(e) === SYNC.other) parts.push(`té «${e.activeName}»`)
-  if (e.reachable !== true && e.registered && e.activeHash) parts.push('segons l’últim avís a Stocka')
+  if (e.reachable !== true && e.activeHash) parts.push('segons l’últim avís a Stocka')
   if (e.cloudOnline) parts.push('en línia a Stocka')
   return parts.join(' · ')
 }
@@ -80,13 +82,14 @@ function choose(e: DeviceEntry) {
     </div>
 
     <p v-if="!devices.entries.length" class="px-3 py-2 text-[13px] leading-[18px] text-ink-soft">
-      Encara no n’hi ha cap. Connecta’t a la Raspberry del pessebre i quedarà a la llista.
+      L’organització encara no en té cap. Afegeix-los a Stocka (Dispositius) amb l’adreça i el PIN, o connecta’t a la
+      Raspberry del pessebre i desa-la des del panell.
     </p>
 
     <button
       v-for="e in devices.entries" :key="e.key"
       type="button" role="menuitem" class="menu-item"
-      :title="e.url ? `Obre ${e.name}` : 'Obre el panell per connectar-t’hi'"
+      :title="e.url ? `Obre ${e.name}` : 'Obre el panell per connectar-t’hi i desar-ne l’adreça'"
       @click="choose(e)">
       <span class="mt-[5px] h-2 w-2 flex-shrink-0 rounded-full" :class="dotClass(e)" aria-hidden="true" />
       <span class="min-w-0 flex-1">
@@ -101,7 +104,7 @@ function choose(e: DeviceEntry) {
     <div class="menu-sep" role="separator" />
     <button
       type="button" role="menuitem" class="menu-item"
-      :disabled="!devices.known.length"
+      :disabled="!devices.entries.some(e => e.url)"
       @click="props.close(); emit('sendMany')">
       <span>
         Envia el show a diversos…
@@ -110,8 +113,8 @@ function choose(e: DeviceEntry) {
     </button>
     <button type="button" role="menuitem" class="menu-item" @click="props.close(); emit('newDevice')">
       <span>
-        Connecta una Raspberry…
-        <span class="menu-hint">Per adreça: belen.local, 10.42.0.1 o la que tingui a la xarxa</span>
+        Connecta una altra Raspberry…
+        <span class="menu-hint">Per adreça: belen.local, 10.42.0.1 o la que tingui a la xarxa; després la pots desar a Stocka</span>
       </span>
     </button>
   </div>

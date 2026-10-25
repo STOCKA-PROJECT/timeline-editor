@@ -1,5 +1,7 @@
 interface ExchangeBody {
   ticket: string
+  /** Persistent session (30 days): the editor asks for it on phones. */
+  rememberMe?: boolean
 }
 
 interface BackendLoginResponse {
@@ -20,7 +22,7 @@ export default defineEventHandler(async (event) => {
   try {
     response = await $fetch.raw<BackendLoginResponse>(`${base}/auth/handoff/exchange`, {
       method: 'POST',
-      body: { ticket: body?.ticket },
+      body: { ticket: body?.ticket, rememberMe: body?.rememberMe === true },
       headers: {
         'Accept-Language': getHeader(event, 'accept-language') ?? 'es'
       }

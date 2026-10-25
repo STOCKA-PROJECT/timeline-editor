@@ -33,15 +33,18 @@ function message(error: unknown, fallback: string): string {
 
 /**
  * The belén Raspberry Pi the editor is connected to (one at a time; `useDevicesStore` lists all of
- * them): where it is on the local network, its PIN for commands (per device, for the browser session
- * only), its live status, its log, and sending the open show to it. Works without Internet: only the
- * laptop and the Pi on the same network.
+ * them): where it is on the local network, its PIN for commands, its live status, its log, and sending
+ * the open show to it. Works without Internet: only the laptop and the Pi on the same network. When
+ * the Pi is a device saved in Stocka (`entry`) its saved PIN is used, and a PIN the Pi accepts or the
+ * address of a device that had none are saved back.
  */
 export const usePiStore = defineStore('pi', () => {
   const url = ref<string>(readStorage('local', URL_KEY) ?? DEFAULT_PI_URLS[0])
   const devices = useDevicesStore()
   /** PIN of the connected device. */
   const pin = ref<string | null>(null)
+  /** Stocka id of the saved device the connected Pi is, if any. */
+  const entryId = ref<number | null>(null)
   const pinVerified = ref(false)
   const info = ref<PiInfo | null>(null)
   const status = ref<PiStatus | null>(null)
@@ -68,6 +71,8 @@ export const usePiStore = defineStore('pi', () => {
   let logTimer: ReturnType<typeof setInterval> | null = null
 
   const connected = computed(() => info.value !== null)
+  /** The saved device the connected Pi is (null for a Pi that is not in the organization). */
+  const entry = computed(() => (entryId.value === null ? null : devices.entryOf(entryId.value)))
   const alerts = computed(() => status.value?.alerts ?? [])
   const lockedMotors = computed(() => Object.entries(status.value?.motors ?? {}).filter(([, m]) => m.locked).map(([name]) => name))
   const state = computed(() => status.value?.state ?? info.value?.state ?? null)
@@ -89,8 +94,17 @@ export const usePiStore = defineStore('pi', () => {
     stopLogs()
     client = null
     info.value = null
+    entryId.value = null
     status.value = null
     streaming.value = false
+  }
+
+  /** Works out which saved device the connected Pi is (after connecting or saving it to Stocka). */
+  function relink() {
+    if (!info.value) return
+    const match = devices.match(info.value, url.value)
+    entryId.value = match?.id ?? null
+    if (match) devices.noteAnswer(match, info.value)
   }
 
   /** The Pi has no battery clock: when its time is not reliable, give it ours (an old Pi without the endpoint is fine). */
@@ -117,8 +131,10 @@ export const usePiStore = defineStore('pi', () => {
       info.value = i
       url.value = c.baseUrl
       writeStorage('local', URL_KEY, c.baseUrl)
-      devices.remember(i, c.baseUrl)
-      pin.value = devices.pinFor(i.device.deviceId)
+      relink()
+      // A saved device without address learns the one it answered at.
+      if (entry.value && !entry.value.url) void devices.saveConnection(entry.value.id, { localUrl: c.baseUrl })
+      pin.value = devices.pinFor(entry.value)
       c.pin = pin.value
       pinVerified.value = false
       status.value = await c.status().catch(() => null)
@@ -139,9 +155,10 @@ export const usePiStore = defineStore('pi', () => {
     }
   }
 
-  /** Tries the saved address, then the usual ones (`belen.local`, the Pi's own Wi-Fi). */
+  /** Tries the last address, the ones saved in Stocka, then the usual ones (`belen.local`, the Pi's own Wi-Fi). */
   async function autoConnect(): Promise<boolean> {
-    const candidates = [...new Set([url.value, ...DEFAULT_PI_URLS])]
+    const saved = devices.entries.map(e => e.url).filter((u): u is string => !!u)
+    const candidates = [...new Set([url.value, ...saved, ...DEFAULT_PI_URLS])]
     for (const candidate of candidates) {
       if (await connect(candidate)) return true
     }
@@ -166,7 +183,7 @@ export const usePiStore = defineStore('pi', () => {
       pin.value = trimmed
       client.pin = trimmed
       pinVerified.value = true
-      if (info.value) devices.setPin(info.value.device.deviceId, trimmed)
+      if (entry.value) void devices.rememberPin(entry.value, trimmed)
       return true
     } catch (e) {
       error.value = message(e, 'No s’ha pogut comprovar el PIN.')
@@ -174,11 +191,49 @@ export const usePiStore = defineStore('pi', () => {
     }
   }
 
+  /** Asks for the PIN again (the new one replaces the saved one once the Pi accepts it). */
   function forgetPin() {
     pin.value = null
     pinVerified.value = false
     if (client) client.pin = null
-    if (info.value) devices.setPin(info.value.device.deviceId, null)
+    if (entry.value) devices.forgetSessionPin(entry.value)
+  }
+
+  /** Saves the address the Pi answers at now on its device in Stocka. */
+  async function saveAddress() {
+    if (!entry.value || !client) return null
+    return await devices.saveConnection(entry.value.id, { localUrl: client.baseUrl })
+  }
+
+  /**
+   * Saves the connected Pi in Stocka: as the saved device `id` (one no Pi had claimed) or, with
+   * `id` null, as a new device named like the Pi. A new device also gets the heartbeat set up on the
+   * Pi when the PIN is known. Returns a line for the panel, or null when it failed (see
+   * `devices.saveError`).
+   */
+  async function saveToStocka(id: number | null): Promise<string | null> {
+    if (!client || !info.value) return null
+    const change = {
+      localUrl: client.baseUrl,
+      deviceId: info.value.device.deviceId,
+      ...(pinVerified.value && pin.value ? { pin: pin.value } : {})
+    }
+    if (id !== null) {
+      const outcome = await devices.saveConnection(id, change)
+      if (outcome === 'failed') return null
+      relink()
+      return outcome === 'queued' ? 'Es desarà a Stocka quan hi hagi connexió.' : 'Desada a Stocka.'
+    }
+    const created = await devices.register(info.value.device.name, change)
+    if (!created) return null
+    relink()
+    if (!pinVerified.value) return 'Afegida a Stocka. Per veure-la en línia al tauler, posa el PIN i torna-ho a provar, o rota’n el token des de Stocka.'
+    try {
+      await client.configureHeartbeat(created.heartbeatUrl, created.heartbeatToken)
+      return 'Afegida a Stocka; quan tingui Internet hi enviarà el seu estat.'
+    } catch {
+      return 'Afegida a Stocka, però la Raspberry no ha acceptat la configuració del batec: rota’n el token des de Stocka.'
+    }
   }
 
   async function refreshLogs() {
@@ -279,6 +334,7 @@ export const usePiStore = defineStore('pi', () => {
     url,
     pin,
     pinVerified,
+    entry,
     info,
     status,
     statusAt,
@@ -304,6 +360,8 @@ export const usePiStore = defineStore('pi', () => {
     disconnect,
     setPin,
     forgetPin,
+    saveAddress,
+    saveToStocka,
     refreshLogs,
     startLogs,
     stopLogs,
