@@ -46,7 +46,7 @@ Nada v3 ha salido de los repos, así que el kind `motor` se **redefine** sin com
 | `debounceMs` | int 0–2000, por defecto 50 | El cambio solo cuenta si se mantiene ese tiempo |
 | `onActive` | enum `none` / `play` / `stop_show` / `panic`, por defecto `none` | Qué hace el reproductor con el show cuando el sensor pasa a activo, además de lo que hagan los motores que lo usen. `play` arranca un pase si está en reposo (lo que hoy hace el pulsador; en modo `pulse`, los ciclos del show); `stop_show` para el pase en curso y deja las salidas en seguro; `panic` pone todo en seguro y deja el reproductor en `SAFE` hasta que alguien lo reactive |
 
-Sin acciones: no es un objetivo del timeline. Aparece en `hardware` porque el reproductor lo necesita y en los cortes por puerto (un sensor cortado se considera **nunca activo**, salvo que sea `onActive: panic`, que no se puede cortar). Todo sensor `play` atiende además la pulsación larga del pulsador actual, sin configuración: 10 s fuerza la Wi-Fi propia y 30 s lo pone todo en seguro (es la llave de rescate cuando no se puede entrar en la página).
+Sin acciones: no es un objetivo del timeline. Aparece en `hardware` porque el reproductor lo necesita y en los cortes por puerto (un sensor cortado se considera **nunca activo**, salvo que sea `onActive: panic`, que no se puede cortar). Un sensor `play` solo arranca el show, al soltarlo: el pulsador está al alcance del público, así que desde el 26-10 no tiene pulsaciones largas (antes 10 s forzaban la Wi-Fi propia y 30 s lo ponían todo en seguro).
 
 ### 2.2 Kind `motor` (redefinido)
 
@@ -148,7 +148,7 @@ Se van preguntando en el chat a medida que hacen falta; aquí queda lo que se de
 | 5 | Polaridad por defecto del sensor: activo a nivel bajo con pull-up | **Decidido** (Joan, 21-10): sí (`activeLow: true`, `pull: up`) |
 | 6 | Tiempo agotado con sensor: alerta, y bloqueo opcional por motor | **Decidido** (Joan, 21-10): el motor para y aparece la alerta siempre; con `lockOnTimeout` el motor deja de funcionar hasta desbloquearlo desde la página o la app |
 | 7 | `onActive` del sensor sobre el show | **Decidido** (Joan, 21-10): sí, con `none`, `play`, `stop_show` y `panic`; el pulsador pasa a ser un sensor `onActive: play` y el kind `button` desaparece |
-| 7b | Pulsación larga de un sensor `play` (hoy 10 s Wi-Fi propia, 30 s pánico) | **Decidido** (Joan, 21-10): todos los sensores `play` la tienen, sin configuración |
+| 7b | Pulsación larga de un sensor `play` (hoy 10 s Wi-Fi propia, 30 s pánico) | ~~Decidido (Joan, 21-10): todos los sensores `play` la tienen~~ · **Revisado** (Joan, 26-10): se quita; el pulsador es del público y solo arranca el show |
 | 8 | (Absorbida por la 7) | — |
 | 9 | Seguimos en contrato v3 aunque cambie el hash dorado | **Decidido** (Joan, 21-10): sí, v3; el hash dorado se actualiza en los tres repos en el mismo cambio |
 | 10 | Migración V26 de motores, pulsadores y acciones | **Decidido** (Joan, 21-10): sí, conversión automática de puertos `motor` (con su sensor «`<motor>-límit`»), puertos `button` (a `sensor` `onActive: play`) y acciones `start_up`/`start_down`; se ensaya sobre la copia local de producción antes de desplegar |

@@ -361,6 +361,14 @@ describe('pieces sharing a LED strip', () => {
     expect(codes(issues)).not.toContain('W_OVERLAP_CONTINUOUS')
   })
 
+  it('lists every piece on the strip and each one on its own segment in meta.pieces', () => {
+    const doc = stripDoc([{ id: 'k1', item: 'i-casa1', action: 53, t: 0 }])
+    const { pieces } = assembleShowPackage(input({ doc, catalog: lookups, orgPorts: ports }))
+    expect(pieces['Tira 1']).toEqual(['Casa simple', 'Casa doble'])
+    expect(pieces['Casa simple']).toEqual(['Casa simple'])
+    expect(pieces['Casa doble']).toEqual(['Casa doble'])
+  })
+
   it('follows the saved strip order and the sample still exports unchanged', async () => {
     const doc = stripDoc([{ id: 'k1', item: 'i-casa1', action: 53, t: 0 }], { 12: ['i-casa2', 'i-casa1'] })
     const { body } = assembleShowPackage(input({ doc, catalog: lookups, orgPorts: ports }))
@@ -429,5 +437,51 @@ describe('button schedule', () => {
     const { pkg, errors } = await buildShowPackage(input({ doc: { ...fx.document(), schedule: empty } }))
     expect(pkg).toBeNull()
     expect(codes(errors)).toEqual(['E_SCHEDULE_INVALID'])
+  })
+})
+
+describe('pieces by port (meta.pieces)', () => {
+  function item(id: string, pieceId: number, ports: number[]) {
+    return { id, pieceId, layerId: 'layer-1', x: 0, y: 0, width: 100, height: 100, rotation: 0, ports }
+  }
+
+  it('the sample names one piece per port, in scene order', async () => {
+    const { pkg } = await buildShowPackage(input())
+    expect(Object.entries(pkg!.meta.pieces!)).toEqual([
+      ['Focos', ['Focos']], ['Sembra', ['Sembra']], ['LlumsE', ['LlumsE']], ['Fondo1', ['Fondo1']],
+      ['Fondo2', ['Fondo2']], ['CasaSimple', ['CasaSimple']], ['CasaDoble', ['CasaDoble']], ['Audio', ['Audio']]
+    ])
+  })
+
+  it('a port driving several pieces lists all of them once, and a piece with several ports appears on each', () => {
+    const doc = fx.document()
+    doc.items.find(i => i.id === 'i-sembra')!.ports = [1, 2]
+    doc.items.push(item('i-focos-bis', 1, [1]))
+    const { pieces } = assembleShowPackage(input({ doc }))
+    expect(pieces.Focos).toEqual(['Focos', 'Sembra'])
+    expect(pieces.Sembra).toEqual(['Sembra'])
+  })
+
+  it('skips items without ports and pieces missing from the catalog', () => {
+    const doc = fx.document()
+    doc.items.find(i => i.id === 'i-audio')!.ports = []
+    doc.items.push(item('i-ghost', 999, [2]))
+    const { pieces } = assembleShowPackage(input({ doc }))
+    expect(pieces).not.toHaveProperty('Audio')
+    expect(pieces.Sembra).toEqual(['Sembra'])
+  })
+
+  it('is omitted when no piece has a port, and never changes the hash', async () => {
+    const { pkg } = await buildShowPackage(input())
+    const unbound = fx.document({ clips: [] })
+    unbound.items.forEach(i => { i.ports = [] })
+    expect(assembleShowPackage(input({ doc: unbound })).pieces).toEqual({})
+    const { pkg: none } = await buildShowPackage(input({ doc: unbound }))
+    expect(none!.meta).not.toHaveProperty('pieces')
+    const extra = fx.document()
+    extra.items.push(item('i-sembra-bis', 2, [1]))
+    const { pkg: more } = await buildShowPackage(input({ doc: extra }))
+    expect(more!.meta.pieces).not.toEqual(pkg!.meta.pieces)
+    expect(more!.meta.hash).toBe(pkg!.meta.hash)
   })
 })

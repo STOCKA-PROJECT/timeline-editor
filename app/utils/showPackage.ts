@@ -19,7 +19,7 @@ import {
 } from '~/types/show'
 import { audioFileWindow, findAudioByAssetName, formatClock } from '~/utils/audioAssets'
 import { canonicalJson, sha256Hex } from '~/utils/canonicalJson'
-import { buildExecutionPlan, type CatalogLookups } from '~/utils/exportBundle'
+import { buildExecutionPlan, type CatalogLookups, type ExecutionItem } from '~/utils/exportBundle'
 import { coerceParam } from '~/utils/showCoerce'
 import { buildHardware } from '~/utils/showHardware'
 import { validateShowPackage } from '~/utils/showValidate'
@@ -69,7 +69,7 @@ export async function showHash(pkg: Omit<ShowPackage, 'meta'>): Promise<string> 
 }
 
 /** Assembles the package without hashing: synchronous, so tests can inspect every step. */
-export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPackage, 'meta'>, issues: ShowIssue[], assetRefs: ShowAssetRef[] } {
+export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPackage, 'meta'>, issues: ShowIssue[], assetRefs: ShowAssetRef[], pieces: Record<string, string[]> } {
   const outputCatalog = input.outputCatalog ?? defaultCatalog
   const kinds = outputCatalog.kinds
   const issues: ShowIssue[] = []
@@ -231,7 +231,26 @@ export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPac
     assets: { audio: [...assets.audio] }
   }
   issues.push(...validateShowPackage({ ...body, meta: { name: '', timelineId: null, exportedAt: '', hash: '' } }, outputCatalog))
-  return { body, issues, assetRefs: [...assetRefs.values()] }
+  return { body, issues, assetRefs: [...assetRefs.values()], pieces: piecesByPort(plan.items, segmentOf, hardware) }
+}
+
+/**
+ * Which pieces each hardware port drives, for the player to show next to the port (`meta.pieces`).
+ * Items without a known piece are skipped; a piece on a strip names the strip and its own segment.
+ */
+export function piecesByPort(items: ExecutionItem[], segmentOf: Map<string, Map<number, string>>,
+  hardware: Record<string, unknown>): Record<string, string[]> {
+  const byPort = new Map<string, Set<string>>()
+  for (const item of items) {
+    if (item.pieceName === null) continue
+    const ports = [...item.ports.map(p => p.name), ...(segmentOf.get(item.itemId)?.values() ?? [])]
+    for (const port of ports) {
+      if (!(port in hardware)) continue
+      if (!byPort.has(port)) byPort.set(port, new Set())
+      byPort.get(port)!.add(item.pieceName)
+    }
+  }
+  return Object.fromEntries([...byPort].map(([port, names]) => [port, [...names]]))
 }
 
 /** The input's mode with the scene's button schedule, unless the mode already carries one (as the backend). */
@@ -241,7 +260,7 @@ export function modeOf(input: Pick<BuildShowInput, 'mode' | 'doc'>): ShowMode {
 }
 
 export async function buildShowPackage(input: BuildShowInput): Promise<BuildShowResult> {
-  const { body, issues, assetRefs } = assembleShowPackage(input)
+  const { body, issues, assetRefs, pieces } = assembleShowPackage(input)
   const errors = dedupe(issues.filter(i => i.level === 'error'))
   const warnings = dedupe(issues.filter(i => i.level === 'warning'))
   if (errors.length > 0) return { pkg: null, errors, warnings }
@@ -255,7 +274,9 @@ export async function buildShowPackage(input: BuildShowInput): Promise<BuildShow
       exportedAt: (input.now ?? (() => new Date().toISOString()))(),
       hash,
       // Where each file comes from, when the editor knows (outside the hash: the show is the same).
-      ...(input.audioByPiece ? { assets: assetRefs } : {})
+      ...(input.audioByPiece ? { assets: assetRefs } : {}),
+      // Which pieces each port drives, for the player's port list (outside the hash too).
+      ...(Object.keys(pieces).length > 0 ? { pieces } : {})
     },
     board: body.board,
     mode: body.mode,

@@ -18,7 +18,7 @@ export interface ScheduleWindow {
 
 /**
  * When a short press of an `onActive: play` sensor starts the show (`mode.schedule`): `allow` only
- * inside a window, `block` never inside one. Stop, panic and long presses always work.
+ * inside a window, `block` never inside one. Stop, panic and the API always work.
  */
 export interface ButtonSchedule {
   rule: 'allow' | 'block'
@@ -64,6 +64,8 @@ export interface ShowMeta {
   hash: string
   /** Origin of every asset, when the editor knows it (outside the hash). */
   assets?: ShowAssetRef[]
+  /** Piece names bound to each hardware port; a piece on a strip also names its segment (outside the hash). */
+  pieces?: Record<string, string[]>
 }
 
 export interface ShowPackage {
