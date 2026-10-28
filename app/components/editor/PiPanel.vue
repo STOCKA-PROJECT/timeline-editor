@@ -120,6 +120,13 @@ const clockText = computed(() => {
   if (!c.reliable) return 'La Raspberry no sap l’hora: l’horari del polsador s’ignora i el polsador funciona sempre.'
   return `Hora de la Raspberry: ${formatPiTime(c.now)} (${c.source === 'ntp' ? 'Internet' : 'd’un ordinador o un mòbil'})`
 })
+const AUDIO_KIND: Record<string, string> = { usb: 'USB', jack: 'el jack de la Raspberry', hdmi: 'HDMI', other: 'una altra sortida' }
+const audioText = computed(() => {
+  const a = pi.status?.audio
+  if (!a) return ''
+  if (a.kind === 'usb') return `Àudio: ${a.sink} (USB)`
+  return `Àudio per ${AUDIO_KIND[a.kind] ?? a.kind} («${a.sink}»), no per l’adaptador USB: endolla’l. El jack fa soroll a les tires LED.`
+})
 const scheduleText = computed(() => {
   const sc = pi.status?.schedule
   if (!sc) return ''
@@ -380,6 +387,7 @@ onBeforeUnmount(() => {
               <button type="button" class="btn btn-sm" :disabled="!pi.pinVerified || !!pi.busyCommand" @click="pi.endRehearsal()">Surt de l’assaig</button>
             </div>
             <p v-if="clockText" class="text-[12px] leading-4" :class="pi.status?.clock?.reliable ? 'text-ink-soft' : 'text-warn'">{{ clockText }}</p>
+            <p v-if="audioText" class="text-[12px] leading-4" :class="pi.status?.audio?.kind === 'usb' ? 'text-ink-soft' : 'text-warn'">{{ audioText }}</p>
             <p v-if="scheduleText" class="text-[12px] leading-4 text-ink-soft">{{ scheduleText }}</p>
             <div class="flex flex-wrap gap-2">
               <button type="button" class="btn btn-sm" :disabled="!pi.pinVerified || !!pi.busyCommand || !pi.status?.showName || playing || !!pi.rehearsal" @click="pi.play()">Reprodueix</button>

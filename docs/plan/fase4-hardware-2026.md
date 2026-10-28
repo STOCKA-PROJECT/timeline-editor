@@ -10,7 +10,7 @@ que sigue es lo que falta para que el belén de 2026 funcione con el hardware re
 | Plan unificado (11-10) | Ahora (20-10) | Por qué |
 |---|---|---|
 | Expansor MCP23017 "si hace falta", dirección `exp1:n` dentro del `pin` del relé | **Relés estandarizados** y el expansor es un **puerto de infraestructura** (`gpio_expander`) al que los relés se refieren por nombre y canal, como los segmentos a su tira | Decisión de Joan; el patrón tira/segmento ya existe en los tres repos y en los formularios |
-| Audio: "jack o tarjeta USB, se decide en el banco" | **Jack**, como en 2025-26. Solo se verifica la configuración de la Pi que ya funcionaba | Confirmado por Joan |
+| Audio: "jack o tarjeta USB, se decide en el banco" | **Adaptador USB**, como en 2025-26 (corregido el 28-10: aquí decía «jack» por error). Solo se verifica la configuración que ya funcionaba | Confirmado por Joan |
 | Ángel: "fijar `maxUpTime` en 1,3 × la subida más lenta" | `maxUpTime` **obligatorio** en el contrato y tope duro en el controlador | Decisión de Joan: debe existir un tiempo máximo de subida |
 | Foco proyectado (`video`, `VideoController`, relé `focoOn/focoOff`) | **Se elimina todo** | No se va a usar |
 | — | **Cabezal móvil Varytec Hero Wash 712 Z RGBW Zoom** por USB→DMX, especificable y controlable desde el timeline | Nuevo hardware de 2026 |
@@ -19,7 +19,7 @@ que sigue es lo que falta para que el belén de 2026 funcione con el hardware re
 ## 1. Decisiones tomadas (Joan, 20 de octubre)
 
 1. Estandarizar la funcionalidad de los relés y poder direccionar más relés con un MCP23017; los puertos de Stocka deben permitir añadirlos.
-2. Audio por el jack de la Pi, como el año pasado; revisar la configuración que funcionaba, no cambiarla.
+2. Audio por adaptador USB, como el año pasado (no por el jack, que comparte el PWM con las tiras); revisar la configuración que funcionaba, no cambiarla.
 3. El ángel tiene un tiempo máximo de subida.
 4. Fuera todo lo del proyector.
 5. El cabezal Varytec se conecta por USB hacia DMX y se controla desde el timeline.
@@ -217,9 +217,10 @@ pan/tilt/zoom/intensidad con lectura numérica para copiar a Stocka). La app lo 
 
 Orden propuesto; cada punto con su criterio de aceptación.
 
-1. **Audio por jack.** Volcar `config.txt`, `aplay -l`, `lsmod`, `asound.conf` de la Pi y guardarlos en
-   `storage/scripts/audio-2025.md`. Reproducir un audio desde `belen.service` (root, sin escritorio) con las cuatro
-   tiras animando a la vez: sin cortes ni ruido durante 5 minutos. Si fallara, el plan B es el adaptador USB.
+1. **Audio por USB.** Con el adaptador enchufado, `status.audio` de la Pi debe decir `usb` (la regla de WirePlumber de
+   `storage/scripts/wireplumber-belen.conf` lo hace predeterminado; `storage/scripts/audio-2025.md`). Reproducir un
+   audio desde `belen.service` (root, sin escritorio) con las cuatro tiras animando a la vez: sin cortes ni ruido
+   durante 5 minutos. Desenchufar y volver a enchufar el adaptador: el sonido vuelve al USB solo.
 2. **Relés nativos.** Estado en el encendido con las líneas `gpio=` aplicadas: ningún relé se activa entre el
    encendido y el servicio (10 encendidos). `identify` de cada relé para comprobar el cableado.
 3. **Expansor.** `i2cdetect -y 1` ve la dirección; arranque sin parpadeo; 16 canales con `identify`; corte de
@@ -269,7 +270,7 @@ El material (adaptador USB-DMX, placa de relés y MCP23017) tiene que estar en l
 
 | Riesgo | Mitigación |
 |---|---|
-| El jack con las tiras en PWM 12/13 funcionó en 2025 pero el servicio nuevo corre como root sin sesión | Punto 1 del banco antes que nada; plan B adaptador USB con `asound.conf` |
+| El servicio nuevo corre como root sin sesión gráfica y podría no ver el PipeWire de `joa` (o elegir el jack, que pisa el PWM de las tiras) | `XDG_RUNTIME_DIR`/`PULSE_RUNTIME_PATH` en la unidad, regla de WirePlumber para el USB y `status.audio` avisando; punto 1 del banco |
 | Nivel lógico 3,3 V insuficiente para la placa de relés | Elegir la placa por ese criterio (decisión 2); si no, etapa ULN2803 |
 | Un `set` con `time` largo coincide con `SAFE` | `SAFE` cancela las interpolaciones y fija dimmer 0 en el mismo fotograma |
 | El aparato con `Dmx Fail = HOLD` queda encendido si la Pi cae | Ajustar `OFF` en el menú; el banco lo comprueba desenchufando el USB |

@@ -286,7 +286,7 @@ boards/
 ### Fase 4 · Banco y hardware nuevo · en paralelo, 12 de octubre – 1 de noviembre
 
 > **Revisión del 20 de octubre.** Replanteada en [`fase4-hardware-2026.md`](fase4-hardware-2026.md): relés estandarizados con el
-> expansor MCP23017 como puerto de infraestructura (`gpio_expander`), audio por jack como en 2025-26, `maxUpTime` obligatorio en el
+> expansor MCP23017 como puerto de infraestructura (`gpio_expander`), audio por adaptador USB como en 2025-26, `maxUpTime` obligatorio en el
 > motor, **se elimina el proyector** (`video`, `focoOn/focoOff`) y entra el cabezal móvil Varytec Hero Wash 712 Z por USB→DMX
 > (`kind: moving_head`). Contrato v3. Absorbe la aceptación con hardware de la fase 2. Lo que sigue se conserva como referencia.
 
@@ -386,6 +386,6 @@ Si el calendario aprieta, se cae primero la fase 6 (la CLI ya cubre la subida) y
 
 - **Nombres de acción.** Confirmar que las acciones de los tipos de pieza actuales se pueden renombrar a los del catálogo (`turn_on`, `fill`, `fade`, `animate`, `start_up`, `play`...). Si hay acciones que no encajan en ningún `kind`, decidir si se eliminan o si se añade la acción al controlador.
 - **Fecha real de montaje.** El calendario supone el puente del 6 al 8 de diciembre.
-- **Audio en la RPi.** Jack o tarjeta USB; se decide en el banco con las tiras funcionando.
+- **Audio en la RPi.** Resuelto: adaptador USB (el jack comparte el PWM con las tiras); ver `rpi4-system/storage/scripts/audio-2025.md`.
 - **Internet en el local.** Condiciona si la fase 6 entra antes de Navidad o después.
 - **Nombre del dispositivo.** `belen1.local` por defecto; si hay dos belenes, `belen2.local`.

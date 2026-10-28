@@ -72,6 +72,12 @@ export interface PiClock {
   now: string
 }
 
+/** Where the Pi's sound goes: it must be the USB adapter (the jack shares the PWM with the LED strips). */
+export interface PiAudio {
+  sink: string
+  kind: 'usb' | 'jack' | 'hdmi' | 'other'
+}
+
 export interface PiClockSync extends PiClock {
   adjusted: boolean
   offsetMs: number
@@ -122,6 +128,8 @@ export interface PiStatus {
   alerts?: PiAlert[]
   dmx?: { connected: boolean, error: string | null } | null
   clock?: PiClock
+  /** Absent on older players; null when the Pi cannot tell (simulation, no PipeWire). */
+  audio?: PiAudio | null
   schedule?: PiSchedule | null
   /** While a rehearsal lasts (`showHash` stays the active show; `cycleMs` counts from the show's 0). */
   rehearsal?: PiRehearsal | null
