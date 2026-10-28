@@ -99,11 +99,12 @@ del reproductor). Un dispositivo guardado con otro puerto o con https muestra un
 
 1. ~~Provar «Envia un show»~~ **Fet (28-10)**: el client real del frontend (`uploadBundle`) va enviar un paquet de 3 MiB en trossos d'1 MiB a una Pi simulada, importat i activat; la branca 422 (escena amb errors) també surt bé.
 2. ~~Provar la CSP nova~~ **Fet (28-10)**: amb la capçalera real, la pàgina connecta a una Pi al port 8080 sense cap violació; a un altre port no ho intenta i mostra l'avís.
-3. Commits als 5 repos (rpi4-system, backend, timeline-editor, frontend, belen-app). A rpi4-system hi ha un canvi a
-   `storage/configs/2026.json` que no és d'aquesta feina: no l'incloguis sense preguntar.
-4. Desplegar en aquest ordre: Pi (ja és a `7b3c65e`; porta el polsador sense pulsacions llargues) → backend (migració V31)
-   → editor → frontend → app. Comprovat el 28-10: el venv del servei de la Pi **no** té `jsonschema` i el seu validador
-   accepta `meta.pieces`; no cal cap condició.
+3. ~~Commits als 5 repos~~ **Fet (28-10)**; `storage/configs/2026.json` (només reindentació) s'ha deixat fora.
+4. ~~Desplegar~~ **Fet (28-10)**: Pi a `d9e9ee3` amb el servei engegat (autoarrencada igual que abans, desactivada), backend amb V31
+   a producció (còpia de seguretat prèvia), editor i frontend construïts per Cloudflare (la primera build del frontend va
+   fallar sense registre; un commit buit la va rellançar i va passar), app pujada a GitHub (l'APK es compila a mà).
+   Pendent d'enllaçar la Pi amb Stocka des de la seva pàgina perquè el `logSync` i el latido funcionin, i reexportar
+   la timeline perquè els ports portin les peces.
 5. ~~App: dispositius de Stocka~~ **Fet (27-10)**: `stores/devices.ts` baixa els dispositius de totes les organitzacions
    amb sessió i Internet, els desa a Preferences, la pestanya «Pessebre» els mostra i un toc posa adreça i PIN i connecta;
    en obrir la pestanya sense connexió es proven després de l'última adreça bona. Era: fer servir els dispositius desats a Stocka, **com a mínim per autocompletar les dades de la connexió**
