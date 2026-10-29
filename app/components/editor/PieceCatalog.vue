@@ -24,7 +24,7 @@ function goTo(index: number) { page.value = index }
 // Enlarged image preview (lightbox) when a thumbnail is clicked.
 const preview = ref<{ src: string, name: string } | null>(null)
 function openPreview(piece: PieceListItemDto) {
-  const url = catalog.coverUrl(piece)
+  const url = catalog.coverFullUrl(piece)
   if (url) preview.value = { src: url, name: piece.name }
 }
 

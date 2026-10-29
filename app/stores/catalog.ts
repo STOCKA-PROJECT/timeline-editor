@@ -118,10 +118,20 @@ export const useCatalogStore = defineStore('catalog', () => {
     return pieces.value.find(p => p.id === id)
   }
 
-  /** Builds the proxied cover-image URL for a piece (browser follows the 302 to R2). */
+  /**
+   * Same-origin URL of the 512 px JPEG thumbnail of a piece's cover: what the catalog rows and
+   * the board draw. The backend streams it with a one-year immutable cache, so the browser asks
+   * for it once; nothing goes to R2 (whose hosts Spanish ISPs block during LaLiga matches).
+   */
   function coverUrl(piece: PieceListItemDto | undefined): string | null {
     if (!piece || !piece.coverAttachmentId || !orgSlug.value) return null
-    return `/api/organizations/${orgSlug.value}/pieces/${piece.id}/attachments/${piece.coverAttachmentId}/download`
+    return `/api/organizations/${orgSlug.value}/pieces/${piece.id}/attachments/${piece.coverAttachmentId}/thumbnail`
+  }
+
+  /** The original of a piece's cover, for the lightbox. */
+  function coverFullUrl(piece: PieceListItemDto | undefined): string | null {
+    if (!piece || !piece.coverAttachmentId) return null
+    return attachmentContentUrl(piece.id, piece.coverAttachmentId)
   }
 
   /** Lazily loads (and caches) the actions of a piece type. Tolerates the gated-feature 403/404. */
@@ -221,6 +231,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     load,
     pieceById,
     coverUrl,
+    coverFullUrl,
     loadActionsForType,
     actionsForPiece,
     ensureActionsForPiece,
