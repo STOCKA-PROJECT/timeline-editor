@@ -471,8 +471,16 @@ export const useSceneStore = defineStore('scene', () => {
     return item
   }
 
+  /** Merges fields into an item; a field set to `undefined` is removed (e.g. an emptied `portTypes`). */
   function updateItem(id: string, partial: Partial<SceneItem>) {
-    items.value = items.value.map(i => (i.id === id ? { ...i, ...partial } : i))
+    items.value = items.value.map((i) => {
+      if (i.id !== id) return i
+      const next: SceneItem = { ...i, ...partial }
+      for (const key of Object.keys(partial) as (keyof SceneItem)[]) {
+        if (partial[key] === undefined) delete next[key]
+      }
+      return next
+    })
     touch()
   }
 

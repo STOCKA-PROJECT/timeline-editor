@@ -38,8 +38,9 @@ export default defineEventHandler(async (event) => {
   const token = getCookie(event, 'stocka_token')
   if (token) headers.set('authorization', `Bearer ${token}`)
 
+  // Raw bytes (a Buffer) or nothing; typed as BodyInit because h3 declares a wider union.
   const body = PAYLOAD_METHODS.has(event.method)
-    ? await readRawBody(event, false).catch(() => undefined)
+    ? (await readRawBody(event, false).catch(() => undefined)) as BodyInit | undefined
     : undefined
 
   let upstream: Response

@@ -6,6 +6,7 @@ import { LED_PATH_PRESET_LABELS, ledPathOf, presetOfPath, presetPath, reverseLed
 import { layoutStrip } from '~/utils/stripLayout'
 import { getAudioContext, loadDecodedAudio } from '~/utils/audioCache'
 import { parseRgb } from '~/utils/showCoerce'
+import { invalidBindings, kindLabel, portRole, roleGroups, typesWithoutPort, withPortRole, withoutPort } from '~/utils/portRoles'
 
 const scene = useSceneStore()
 const selection = useSelectionStore()
@@ -190,12 +191,12 @@ const selectedAnimation = computed<string | null>(() => {
 const ledClip = computed(() => (clip.value ? ledClipOf(clip.value) : null))
 /** LEDs of the figure according to its own numeric attribute (e.g. «Longitud»), or null. */
 const pieceLedCount = computed<number | null>(() => (piece.value ? catalog.ledLengthOf(piece.value.id) : null))
-/** LEDs of the port of the action's type assigned to the item (segment range or strip length), or null. */
+/** LEDs of the port playing the action's type for the item (segment range or strip length), or null. */
 const portLedCount = computed<number | null>(() => {
   const typeId = selectedAction.value ? catalog.typeIdOfAction(selectedAction.value.id) : undefined
   for (const id of item.value?.ports ?? []) {
     const port = catalog.portById(id)
-    if (!port || port.pieceTypeId !== typeId) continue
+    if (!port || portRole(item.value, port) !== typeId) continue
     const cfg = (port.config ?? {}) as Record<string, unknown>
     if (port.kind === 'led_segment' && typeof cfg.first === 'number' && typeof cfg.last === 'number') return Math.abs(cfg.last - cfg.first) + 1
     if (port.kind === 'led_strip' && typeof cfg.length === 'number') return cfg.length
@@ -367,8 +368,20 @@ function startDrawingLed() {
 }
 
 // ----- ports (hardware outputs assigned to the item) -----
-/** Ports assignable to the selected item = those whose piece type matches its piece. */
-const compatiblePorts = computed(() => catalog.portsForPiece(piece.value))
+/**
+ * Ports grouped by hardware type of the piece: every port of the type's kind, ticked when it plays
+ * that type for the item. A piece with «Llum» and «Moviment» (both relays) gets one group each, so
+ * each relay is driven by the actions of its own type; a port ticked under one type is held there.
+ */
+const portGroups = computed(() => roleGroups(item.value, piece.value, catalog.ports))
+
+/** Hardware types of the piece with no port playing them: their clips reach nothing. */
+const unboundTypes = computed(() =>
+  catalog.portsLoaded ? typesWithoutPort(item.value, piece.value, catalog.portById) : [])
+
+/** Bound ports whose role the piece cannot use (type removed from the piece, or another kind). */
+const badBindings = computed(() =>
+  catalog.portsLoaded ? invalidBindings(item.value, piece.value, catalog.portById) : [])
 
 /**
  * Port ids still assigned to the item that no longer exist in the organization (deleted after the
@@ -378,22 +391,14 @@ const compatiblePorts = computed(() => catalog.portsForPiece(piece.value))
 const stalePortIds = computed(() =>
   catalog.portsLoaded ? (item.value?.ports ?? []).filter(id => !catalog.portById(id)) : [])
 
-function isPortSelected(portId: number): boolean {
-  return (item.value?.ports ?? []).includes(portId)
+/** Binds the port to the item as the given type, or unbinds it. */
+function setPort(portId: number, typeId: number, checked: boolean) {
+  if (!item.value) return
+  scene.updateItem(item.value.id, checked ? withPortRole(item.value, portId, typeId) : withoutPort(item.value, portId))
 }
 
 function removePort(portId: number) {
-  togglePort(portId, false)
-}
-
-/** Adds or removes a port id from the item, keeping zero/one/many assignments. */
-function togglePort(portId: number, checked: boolean) {
-  if (!item.value) return
-  const current = item.value.ports ?? []
-  const next = checked
-    ? (current.includes(portId) ? current : [...current, portId])
-    : current.filter(id => id !== portId)
-  scene.updateItem(item.value.id, { ports: next })
+  if (item.value) scene.updateItem(item.value.id, withoutPort(item.value, portId))
 }
 
 // ----- pieces along a LED strip: order and LED ranges -----
@@ -654,20 +659,47 @@ watch(stripsOfItem, (strips) => {
         @change="setRotation(Number(($event.target as HTMLInputElement).value))">
     </div>
 
-    <!-- Ports: sortides de maquinari assignades (cap, una o diverses) compatibles amb el tipus de l'article -->
+    <!-- Ports: sortides de maquinari assignades (cap, una o diverses), agrupades pel tipus de l'article que fan -->
     <div class="mt-3 flex flex-col gap-1 border-t border-line pt-3">
       <span class="text-[11px] font-semibold uppercase tracking-[.08em] text-ink-muted">Ports</span>
-      <div v-if="compatiblePorts.length" class="flex flex-col gap-1">
-        <label v-for="p in compatiblePorts" :key="p.id" class="flex items-center gap-2 text-[12.5px] text-ink">
-          <input type="checkbox" :checked="isPortSelected(p.id)"
-            @change="togglePort(p.id, ($event.target as HTMLInputElement).checked)">
-          <span class="min-w-0 flex-1 truncate" :title="p.name">{{ p.name }}</span>
-          <span v-if="p.pin != null" class="flex-shrink-0 text-[11px] text-ink-muted">pin {{ p.pin }}</span>
-        </label>
-      </div>
+      <template v-if="portGroups.length">
+        <div v-for="g in portGroups" :key="g.type.id" class="flex flex-col gap-1" :class="portGroups.length > 1 ? 'mt-1' : ''">
+          <span v-if="portGroups.length > 1" class="text-[11.5px] font-medium text-ink-soft">
+            {{ g.type.name }} <span class="font-normal text-ink-muted">· {{ kindLabel(g.type.kind) }}</span>
+          </span>
+          <p v-if="g.ports.length === 0" class="text-[11.5px] text-ink-muted">
+            No hi ha cap port de {{ kindLabel(g.type.kind) }} a l’organització.
+          </p>
+          <label v-for="row in g.ports" :key="row.port.id" class="flex items-center gap-2 text-[12.5px]"
+            :class="row.heldBy ? 'text-ink-muted' : 'text-ink'">
+            <input type="checkbox" :checked="row.selected" :disabled="!!row.heldBy"
+              @change="setPort(row.port.id, g.type.id, ($event.target as HTMLInputElement).checked)">
+            <span class="min-w-0 flex-1 truncate" :title="row.port.name">{{ row.port.name }}</span>
+            <span v-if="row.heldBy" class="flex-shrink-0 text-[11px] text-ink-muted">fa de «{{ row.heldBy.name }}»</span>
+            <span v-else-if="row.port.pin != null" class="flex-shrink-0 text-[11px] text-ink-muted">pin {{ row.port.pin }}</span>
+          </label>
+          <p v-if="g.ports.length && unboundTypes.some(t => t.id === g.type.id)" class="text-[11px] text-warn">
+            <template v-if="portGroups.length > 1">Cap port fa de «{{ g.type.name }}»: les seves accions no arribaran al maquinari.</template>
+            <template v-else>Sense port, les accions no arribaran al maquinari.</template>
+          </p>
+        </div>
+      </template>
       <p v-else class="text-[11.5px] text-ink-muted">
-        Aquest article no té cap port compatible.
+        Aquest article no té cap tipus amb sortida de maquinari.
       </p>
+
+      <!-- Bound ports the piece cannot use any more (type removed from the piece, or another kind): export refuses them -->
+      <div v-if="badBindings.length" class="mt-1 flex flex-col gap-1 rounded-[6px] border border-danger-soft bg-danger-soft p-2">
+        <span class="text-[11px] font-semibold text-danger">Ports que no encaixen amb l’article</span>
+        <div v-for="b in badBindings" :key="'bad' + b.port.id" class="flex items-center gap-2 text-[12.5px] text-ink">
+          <span class="min-w-0 flex-1 truncate" :title="b.port.name">
+            {{ b.port.name }}
+            <span class="text-[11px] text-ink-muted">· {{ b.reason === 'type' ? 'fa d’un tipus que l’article no té' : 'no és una sortida del tipus que fa' }}</span>
+          </span>
+          <button class="btn btn-danger !h-6 !px-2 !text-[11px]" @click="removePort(b.port.id)">Treu</button>
+        </div>
+        <p class="text-[11px] text-ink-muted">Treu-los i marca el port correcte a la llista de dalt.</p>
+      </div>
 
       <!-- Pieces sharing a LED strip: their order along the strip decides which LEDs each one gets -->
       <div v-for="s in stripsOfItem" :key="'strip' + s.port.id" class="mt-2 flex flex-col gap-1 rounded-[6px] border border-line bg-bg-soft p-2">

@@ -58,17 +58,48 @@ describe('buildShowPackage', () => {
     expect(fills[0]!.params).toEqual(fills[1]!.params)
   })
 
-  it('ignores ports of another piece type on the same item and fails when none matches', () => {
+  it('refuses a port playing a type the piece lacks and fails when no port plays the action\'s type', () => {
     const doc = fx.document()
     const focos = doc.items.find(i => i.id === 'i-focos')!
-    focos.ports = [1, 6] // a relay of RELAY_TYPE and a segment of SEGMENT_TYPE
-    const ok = assembleShowPackage(input({ doc }))
-    expect(ok.body.timeline.filter(e => e.target === 'Fondo1' && e.action === 'turn_on')).toEqual([])
-    expect(ok.issues.filter(i => i.level === 'error')).toEqual([])
+    focos.ports = [1, 6] // a relay of RELAY_TYPE and a segment of SEGMENT_TYPE, which Focos does not have
+    const mixed = assembleShowPackage(input({ doc }))
+    expect(mixed.body.timeline.filter(e => e.target === 'Fondo1' && e.action === 'turn_on')).toEqual([])
+    expect(codes(mixed.issues.filter(i => i.level === 'error'))).toEqual(['E_PORT_TYPE_MISMATCH'])
+    expect(mixed.issues[0]!.message).toContain('«Fondo1»')
+    expect(mixed.issues[0]!.message).toContain('«Focos»')
 
     focos.ports = [6]
     const { issues } = assembleShowPackage(input({ doc }))
     expect(codes(issues.filter(i => i.level === 'error'))).toContain('E_NO_PORT')
+    const noPort = issues.find(i => i.code === 'E_NO_PORT')!.message
+    expect(noPort).toContain('«Tipus 1»')
+    expect(noPort).toContain('«Encendre»')
+  })
+
+  it('drives one port per type of the piece according to portTypes', () => {
+    // Focos gets a second relay type (TIMED_RELAY_TYPE) and two relays of the organization: port 1
+    // keeps playing its own type, port 2 (Sembra's, of RELAY_TYPE) plays the timed type.
+    const focosPiece = { ...fx.pieces[0]!, pieceTypes: [{ id: fx.RELAY_TYPE, name: 'Relé', kind: 'relay' as const }, { id: fx.TIMED_RELAY_TYPE, name: 'Llum', kind: 'relay' as const }] }
+    const lookups = { ...fx.catalogLookups, pieceById: (id: number) => (id === 1 ? focosPiece : fx.catalogLookups.pieceById(id)) }
+    const doc = fx.document()
+    const focos = doc.items.find(i => i.id === 'i-focos')!
+    focos.ports = [1, 2]
+    focos.portTypes = { 2: fx.TIMED_RELAY_TYPE }
+    doc.items = doc.items.filter(i => i.id !== 'i-sembra')
+    doc.clips = [
+      { id: 'k1', trackId: 't-i-focos', pieceTypeActionId: 13, startMs: 0, durationMs: 1000, paramValues: {} }, // turn_on of RELAY_TYPE
+      { id: 'k2', trackId: 't-i-focos', pieceTypeActionId: 41, startMs: 500, durationMs: 2000, paramValues: {} } // turn_on of TIMED_RELAY_TYPE
+    ]
+    const { body, issues } = assembleShowPackage(input({ doc, catalog: lookups }))
+    expect(issues.filter(i => i.level === 'error')).toEqual([])
+    expect(body.timeline.map(e => [e.t, e.target, e.action])).toEqual([[0, 'Focos', 'turn_on'], [500, 'Sembra', 'turn_on']])
+    expect(body.timeline[1]!.params).toEqual({ time: 2 })
+
+    // A role of another kind is refused like the backend does.
+    focos.portTypes = { 2: fx.TIMED_RELAY_TYPE, 1: fx.SEGMENT_TYPE }
+    focosPiece.pieceTypes.push({ id: fx.SEGMENT_TYPE, name: 'Segment', kind: 'led_segment' as never })
+    const bad = assembleShowPackage(input({ doc, catalog: lookups }))
+    expect(codes(bad.issues.filter(i => i.level === 'error'))).toContain('E_PORT_KIND_MISMATCH')
   })
 
   it('returns no package while there are errors', async () => {

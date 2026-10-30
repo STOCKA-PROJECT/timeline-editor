@@ -7,10 +7,12 @@ import type {
 import type { OutputKind } from '~/types/catalog'
 import type { SceneDocument } from '~/types/editor'
 import { issue, type ShowIssue } from '~/types/show'
+import { portRole } from '~/utils/portRoles'
 
 // Export bundle: the editor document verbatim (so it can be re-imported into another timeline)
 // plus a resolved execution plan: every clip becomes a step with its action and parameter values
-// materialized, and every board item carries its assigned ports. `showPackage.ts` turns this plan
+// materialized, and every board item carries its assigned ports with the piece type each one plays
+// for it (see `portRoles.ts`). `showPackage.ts` turns this plan
 // into the `stocka-show` package the Raspberry Pi executes.
 
 export const TIMELINE_EXPORT_FORMAT = 'stocka-timeline'
@@ -21,7 +23,10 @@ export interface ExecutionPort {
   id: number
   name: string
   kind: OutputKind
-  /** Piece type the port belongs to; null for infrastructure ports (strips, expanders, sensors). */
+  /**
+   * Piece type the port plays for the item (`portTypes` of the item, else the port's own type);
+   * null for infrastructure ports (strips, expanders, sensors). The actions of that type drive it.
+   */
   pieceTypeId: number | null
   /** GPIO pin for kinds that have one; null otherwise. */
   pin: number | null
@@ -154,11 +159,21 @@ export function buildExecutionPlan(doc: SceneDocument, catalog: CatalogLookups):
         issues.push(issue('error', 'E_PORT_STALE', `El port ${portId} assignat a «${piece?.name ?? item.id}» ja no existeix.`))
         continue
       }
+      // The role must be a type of the piece and of the port's kind; checked like the backend does.
+      const role = portRole(item, port)
+      if (piece && role != null) {
+        const type = piece.pieceTypes.find(t => t.id === role)
+        if (!type) {
+          issues.push(issue('error', 'E_PORT_TYPE_MISMATCH', `El port «${port.name}» fa d'un tipus que «${piece.name}» no té.`, { port: port.name }))
+        } else if (type.kind != null && type.kind !== port.kind) {
+          issues.push(issue('error', 'E_PORT_KIND_MISMATCH', `El port «${port.name}» (${port.kind}) no pot fer de «${type.name}» (${type.kind}).`, { port: port.name }))
+        }
+      }
       ports.push({
         id: port.id,
         name: port.name,
         kind: port.kind,
-        pieceTypeId: port.pieceTypeId,
+        pieceTypeId: role,
         pin: port.pin,
         config: port.config ?? {},
         position: port.position,

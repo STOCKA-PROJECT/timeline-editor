@@ -71,3 +71,7 @@ main Stocka frontend mints the ticket and calls `window.open(...)` for you.
 - `app/components/editor/` — `BoardStage` (Konva), `TimelinePanel`, `ClipInspector`, `LayersPanel`,
   `PieceCatalog`, `Toolbar`, `PlaybackControls`, `ActionParameterInput`.
 - `app/types/editor.ts` — the versioned scene document schema persisted as JSON in the backend.
+- `app/utils/portRoles.ts` — which piece type each port of an item plays (`item.portTypes`): a port
+  fits any type of the piece with its kind, and the actions of a type drive the ports playing it,
+  so a piece with two relay types («Llum» + «Moviment») gets one relay per type. Mirrored by the
+  backend's `SceneDocument.Item.portRole`.

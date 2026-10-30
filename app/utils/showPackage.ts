@@ -124,10 +124,16 @@ export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPac
     const item = itemById.get(step.itemId)
     if (!item) continue
     const label = step.label ?? step.action.displayName
+    // Each port plays one type of the piece (its `portTypes` role, else its own type): the action
+    // reaches the ports playing the action's type, so a piece with two relay types drives one
+    // relay per type.
     const targets = item.ports.filter(p => p.pieceTypeId === step.action!.pieceTypeId)
     if (targets.length === 0) {
+      const typeName = input.catalog.pieceById(item.pieceId)?.pieceTypes.find(t => t.id === step.action!.pieceTypeId)?.name
       issues.push(issue('error', 'E_NO_PORT',
-        `La peça «${item.pieceName ?? item.itemId}» no té cap port del tipus de peça de l'acció «${step.action.displayName}» (clip «${label}», ${step.startMs} ms).`,
+        typeName
+          ? `La peça «${item.pieceName ?? item.itemId}» no té cap port que faci de «${typeName}» per a l'acció «${step.action.displayName}» (clip «${label}», ${step.startMs} ms).`
+          : `La peça «${item.pieceName ?? item.itemId}» no té cap port del tipus de peça de l'acció «${step.action.displayName}» (clip «${label}», ${step.startMs} ms).`,
         { clipId: step.clipId }))
       continue
     }

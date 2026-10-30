@@ -13,6 +13,7 @@ import type {
 import { isOutputKind, type OutputKind } from '~/types/catalog'
 import { OfflineUnavailableError, isNetworkFailure } from '~/utils/offline/cachedRequest'
 import { PIECES_PAGE_SIZE, toServerParams, usesHardware, type PieceQuery } from '~/utils/pieceFilters'
+import { compatiblePorts } from '~/utils/portRoles'
 import { ledLengthFromAttributes } from '~/utils/stripLayout'
 
 /** Upper bound of list pages fetched for the palette (× {@link PIECES_PAGE_SIZE} pieces). */
@@ -186,10 +187,9 @@ export const useCatalogStore = defineStore('catalog', () => {
   }
 
   /** Ports assignable to a piece = those whose piece type is one of the piece's types. */
+  /** Ports a piece can use: every port of the kind of one of its hardware types (see `portRoles`). */
   function portsForPiece(piece: PieceListItemDto | undefined): PortResponseDto[] {
-    if (!piece) return []
-    const typeIds = new Set(piece.pieceTypes.map(t => t.id))
-    return ports.value.filter(p => p.pieceTypeId != null && typeIds.has(p.pieceTypeId))
+    return compatiblePorts(ports.value, piece)
   }
 
   /** Piece type that owns an action (actions are cached per type once loaded). */

@@ -47,11 +47,17 @@ export interface SceneItem {
   widthAttr?: string | null
   heightAttr?: string | null
   /**
-   * Ids of the hardware ports assigned to this item (zero, one or many). Only ports whose piece
-   * type matches the item's piece are offered in the UI; the backend rejects cross-organization
+   * Ids of the hardware ports assigned to this item (zero, one or many). A port is offered for
+   * every type of the piece with the same output kind; the backend rejects cross-organization
    * ids and tolerates stale ones.
    */
   ports?: number[]
+  /**
+   * Piece type each assigned port plays for this item (port id → piece type id). An action of a
+   * type drives the ports playing that type, so a piece with two relay types («Llum» and
+   * «Moviment») gets one relay per type. A port without an entry plays its own piece type.
+   */
+  portTypes?: Record<string, number>
   /**
    * Where the LEDs of the piece sit on the board: a polyline the LEDs are spread along, LED 0 at
    * the first point, in fractions of the item's size so it follows resizes and rotations. Absent:
