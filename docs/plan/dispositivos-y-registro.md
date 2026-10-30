@@ -103,8 +103,13 @@ del reproductor). Un dispositivo guardado con otro puerto o con https muestra un
 4. ~~Desplegar~~ **Fet (28-10)**: Pi a `d9e9ee3` amb el servei engegat (autoarrencada igual que abans, desactivada), backend amb V31
    a producció (còpia de seguretat prèvia), editor i frontend construïts per Cloudflare (la primera build del frontend va
    fallar sense registre; un commit buit la va rellançar i va passar), app pujada a GitHub (l'APK es compila a mà).
-   Pendent d'enllaçar la Pi amb Stocka des de la seva pàgina perquè el `logSync` i el latido funcionin, i reexportar
-   la timeline perquè els ports portin les peces.
+   Enllaç amb Stocka fet per Joan el 28-10 (latido 204 i registre pujant). Pendent: reexportar la timeline perquè els
+   ports portin les peces.
+   **Autoarrencada activada el 28-10** per deixar la Pi al local: `sudo bash storage/scripts/install.sh --enable` +
+   `sudo venv/bin/python -m tools.boot_gpio --apply`; reinici comprovat (servei amunt en 30 s, show carregat, so USB).
+   Dues coses trobades i arreglades a `install.sh` (pendents de commit): l'script anava sense bit d'execució, i
+   `tools.boot_gpio` / `tools.label` corrien com a `joa` quan `storage/active` i `device.json` ja són de root (0600)
+   un cop el servei els escriu, així que el bloc `gpio=` i l'etiqueta se saltaven en silenci.
 5. ~~App: dispositius de Stocka~~ **Fet (27-10)**: `stores/devices.ts` baixa els dispositius de totes les organitzacions
    amb sessió i Internet, els desa a Preferences, la pestanya «Pessebre» els mostra i un toc posa adreça i PIN i connecta;
    en obrir la pestanya sense connexió es proven després de l'última adreça bona. Era: fer servir els dispositius desats a Stocka, **com a mínim per autocompletar les dades de la connexió**
