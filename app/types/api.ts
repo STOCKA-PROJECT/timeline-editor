@@ -156,6 +156,25 @@ export interface TimelineResponseDto {
   updatedAt: string
 }
 
+/** A location of the organization's tree (flat list: the parent is a reference). */
+export interface LocationResponseDto {
+  id: number
+  name: string
+  description?: string | null
+  parentId: number | null
+}
+
+/** State of the organization's semantic (XEYE) index; `enabled && indexed` = the text search understands descriptions. */
+export interface SearchStatusDto {
+  organizationId: number
+  enabled: boolean
+  indexed: boolean
+  indexedPieces: number
+  totalPieces: number
+  trainingPending: boolean
+  lastTrainingLaunchedAt: string | null
+}
+
 /** Paginated wrapper used by the pieces list endpoint. */
 export interface Page<T> {
   content: T[]

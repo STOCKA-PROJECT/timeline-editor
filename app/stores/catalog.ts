@@ -1,7 +1,22 @@
 import { defineStore } from 'pinia'
-import type { Page, PieceAttachmentResponseDto, PieceListItemDto, PieceResponseDto, PieceTypeActionResponseDto, PortResponseDto } from '~/types/api'
+import type {
+  LocationResponseDto,
+  Page,
+  PieceAttachmentResponseDto,
+  PieceListItemDto,
+  PieceResponseDto,
+  PieceTypeActionResponseDto,
+  PieceTypeResponseDto,
+  PortResponseDto,
+  SearchStatusDto
+} from '~/types/api'
 import { isOutputKind, type OutputKind } from '~/types/catalog'
+import { OfflineUnavailableError, isNetworkFailure } from '~/utils/offline/cachedRequest'
+import { PIECES_PAGE_SIZE, toServerParams, usesHardware, type PieceQuery } from '~/utils/pieceFilters'
 import { ledLengthFromAttributes } from '~/utils/stripLayout'
+
+/** Upper bound of list pages fetched for the palette (× {@link PIECES_PAGE_SIZE} pieces). */
+const MAX_PIECE_PAGES = 30
 
 /**
  * Read-only catalog of the organization's articles (pieces), its hardware ports and, lazily, the
@@ -21,19 +36,137 @@ export const useCatalogStore = defineStore('catalog', () => {
   // AUDIO attachments per piece (what `audio.play` clips can choose from), loaded lazily. A piece
   // present with an empty list has been loaded and simply has no audio.
   const audioByPiece = ref<Record<number, PieceAttachmentResponseDto[]>>({})
+  // What the palette filters by: the org's piece types (with their output kind) and its locations.
+  // Empty when the request failed; the palette then hides those filters.
+  const pieceTypes = ref<PieceTypeResponseDto[]>([])
+  const locations = ref<LocationResponseDto[]>([])
+  // State of the semantic index; null until known (or when the request failed).
+  const searchStatus = ref<SearchStatusDto | null>(null)
+
+  /** The text search understands descriptions, synonyms and typos (XEYE index with pieces in it). */
+  const semanticSearch = computed(() => {
+    const s = searchStatus.value
+    return Boolean(s?.enabled && s.indexed && s.indexedPieces > 0)
+  })
+
+  /** Ids of the piece types that drive a hardware output (from the types list and the pieces themselves). */
+  const hardwareTypeIds = computed(() => {
+    const ids = new Set<number>()
+    for (const t of pieceTypes.value) if (t.kind != null) ids.add(t.id)
+    for (const p of pieces.value) for (const t of p.pieceTypes) if (t.kind != null) ids.add(t.id)
+    return [...ids]
+  })
+
+  /** Whether the organization has pieces that use the Raspberry Pi at all (else the hardware filter is pointless). */
+  const hardwareAvailable = computed(() => hardwareTypeIds.value.length > 0 || pieces.value.some(usesHardware))
 
   async function load(slug: string) {
     orgSlug.value = slug
     loading.value = true
     try {
-      const cached = useCachedApi()
-      const [page] = await Promise.all([
-        cached.get<Page<PieceListItemDto>>(`/organizations/${slug}/pieces`, { size: 200, sort: 'name,asc' }),
-        loadPorts(slug)
+      const [all] = await Promise.all([
+        loadAllPieces(slug),
+        loadPorts(slug),
+        loadPieceTypes(slug),
+        loadLocations(slug),
+        loadSearchStatus(slug)
       ])
-      pieces.value = page.content ?? []
+      pieces.value = all
     } finally {
       loading.value = false
+    }
+  }
+
+  /**
+   * Every piece of the organization, by name: the backend caps a page at {@link PIECES_PAGE_SIZE},
+   * so the list is walked page by page (each page cached for offline use).
+   */
+  async function loadAllPieces(slug: string): Promise<PieceListItemDto[]> {
+    const cached = useCachedApi()
+    const out: PieceListItemDto[] = []
+    for (let pageNo = 0; pageNo < MAX_PIECE_PAGES; pageNo++) {
+      let page: Page<PieceListItemDto>
+      try {
+        page = await cached.get<Page<PieceListItemDto>>(
+          `/organizations/${slug}/pieces`,
+          { size: PIECES_PAGE_SIZE, sort: 'name,asc', page: pageNo }
+        )
+      } catch (error) {
+        // Offline with only the first pages on the laptop: better a partial palette than no editor.
+        if (pageNo > 0 && error instanceof OfflineUnavailableError) break
+        throw error
+      }
+      out.push(...(page.content ?? []))
+      if (pageNo + 1 >= (page.totalPages ?? 0) || (page.content ?? []).length === 0) break
+    }
+    return out
+  }
+
+  /** The org's piece types; a failure leaves the list empty (the palette hides the type filter). */
+  async function loadPieceTypes(slug: string): Promise<void> {
+    try {
+      pieceTypes.value = await useCachedApi().get<PieceTypeResponseDto[]>(`/organizations/${slug}/piece-types`)
+    } catch {
+      pieceTypes.value = []
+    }
+  }
+
+  /** The org's locations (flat); a failure leaves the list empty (the palette hides the location filter). */
+  async function loadLocations(slug: string): Promise<void> {
+    try {
+      locations.value = await useCachedApi().get<LocationResponseDto[]>(`/organizations/${slug}/locations`)
+    } catch {
+      locations.value = []
+    }
+  }
+
+  /** Whether the text search is semantic; unknown (plain search assumed) when the request fails. */
+  async function loadSearchStatus(slug: string): Promise<void> {
+    try {
+      searchStatus.value = await useCachedApi().get<SearchStatusDto>(`/organizations/${slug}/search/status`)
+    } catch {
+      searchStatus.value = null
+    }
+  }
+
+  /** Adds or refreshes pieces in the list (what a server search returned), keeping the name order. */
+  function upsertPieces(list: PieceListItemDto[]): void {
+    if (list.length === 0) return
+    const byId = new Map(pieces.value.map(p => [p.id, p]))
+    let changed = false
+    for (const p of list) {
+      const current = byId.get(p.id)
+      if (!current || current.updatedAt !== p.updatedAt || current.coverAttachmentId !== p.coverAttachmentId) {
+        byId.set(p.id, p)
+        changed = true
+      }
+    }
+    if (!changed) return
+    pieces.value = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+  }
+
+  /**
+   * Asks the server for the pieces matching the query (text ranked by the semantic index when
+   * there is one, location, types, status). The answer is merged into {@link pieces}, so a piece
+   * found this way can be dragged to the board like any other. Throws on failure; a network
+   * failure also flags the editor as offline (`OfflineUnavailableError` is not raised here: the
+   * caller falls back to the local list itself).
+   */
+  async function searchPieces(query: PieceQuery): Promise<PieceListItemDto[]> {
+    if (!orgSlug.value) return []
+    const api = useApi()
+    const connectivity = useConnectivityStore()
+    try {
+      const page = await api<Page<PieceListItemDto>>(`/organizations/${orgSlug.value}/pieces`, {
+        query: toServerParams(query, hardwareTypeIds.value, semanticSearch.value)
+      })
+      connectivity.reportNetwork()
+      const list = page.content ?? []
+      upsertPieces(list)
+      return list
+    } catch (error) {
+      if (isNetworkFailure(error)) connectivity.reportUnreachable()
+      throw error
     }
   }
 
@@ -219,6 +352,9 @@ export const useCatalogStore = defineStore('catalog', () => {
     ports.value = []
     portsLoaded.value = false
     audioByPiece.value = {}
+    pieceTypes.value = []
+    locations.value = []
+    searchStatus.value = null
   }
 
   return {
@@ -228,7 +364,15 @@ export const useCatalogStore = defineStore('catalog', () => {
     actionsByType,
     ports,
     portsLoaded,
+    pieceTypes,
+    locations,
+    searchStatus,
+    semanticSearch,
+    hardwareTypeIds,
+    hardwareAvailable,
     load,
+    upsertPieces,
+    searchPieces,
     pieceById,
     coverUrl,
     coverFullUrl,

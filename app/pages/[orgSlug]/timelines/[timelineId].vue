@@ -13,7 +13,8 @@ const selection = useSelectionStore()
 const playback = usePlaybackStore()
 
 // Resizable side sections (left panel, right panel, bottom timeline, layers next to the timeline).
-const left = usePaneSize('left', 260, { min: 200, max: 480, axis: 'x', dir: 1 })
+// The piece palette grew (filters, compact rows with the types): new key so everyone gets the wider default.
+const left = usePaneSize('catalog', 340, { min: 240, max: 600, axis: 'x', dir: 1 })
 const right = usePaneSize('right', 300, { min: 220, max: 520, axis: 'x', dir: -1 })
 const bottom = usePaneSize('bottom', 320, { min: 160, max: 620, axis: 'y', dir: -1 })
 const layersW = usePaneSize('layers', 260, { min: 200, max: 460, axis: 'x', dir: -1 })

@@ -65,7 +65,8 @@ main Stocka frontend mints the ticket and calls `window.open(...)` for you.
 - `server/` — BFF: `[...path].ts` proxies `/api/**` to the backend with the access-token cookie;
   `auth/exchange.post.ts` swaps a handoff ticket for a session; `auth/refresh.post.ts` rotates it.
   Cookie scheme mirrors the main app (`stocka_token`, `stocka_refresh`).
-- `app/stores/` — `auth`, `catalog` (pieces + actions), `scene` (the document + autosave),
+- `app/stores/` — `auth`, `catalog` (pieces, types, locations, ports, actions; the server search the
+  palette uses), `scene` (the document + autosave),
   `playback`, `selection`.
 - `app/components/editor/` — `BoardStage` (Konva), `TimelinePanel`, `ClipInspector`, `LayersPanel`,
   `PieceCatalog`, `Toolbar`, `PlaybackControls`, `ActionParameterInput`.
