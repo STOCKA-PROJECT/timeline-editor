@@ -6,7 +6,7 @@ import { LED_PATH_PRESET_LABELS, ledPathOf, presetOfPath, presetPath, reverseLed
 import { layoutStrip } from '~/utils/stripLayout'
 import { getAudioContext, loadDecodedAudio } from '~/utils/audioCache'
 import { parseRgb } from '~/utils/showCoerce'
-import { invalidBindings, kindLabel, portRole, roleGroups, typesWithoutPort, withPortRole, withoutPort } from '~/utils/portRoles'
+import { invalidBindings, kindLabel, portPlays, roleGroups, sharedRoles, typesWithoutPort, withTypePort, withoutPort, withoutRole, type RoleOption } from '~/utils/portRoles'
 
 const scene = useSceneStore()
 const selection = useSelectionStore()
@@ -196,7 +196,7 @@ const portLedCount = computed<number | null>(() => {
   const typeId = selectedAction.value ? catalog.typeIdOfAction(selectedAction.value.id) : undefined
   for (const id of item.value?.ports ?? []) {
     const port = catalog.portById(id)
-    if (!port || portRole(item.value, port) !== typeId) continue
+    if (!port || typeId == null || !portPlays(item.value, port, typeId)) continue
     const cfg = (port.config ?? {}) as Record<string, unknown>
     if (port.kind === 'led_segment' && typeof cfg.first === 'number' && typeof cfg.last === 'number') return Math.abs(cfg.last - cfg.first) + 1
     if (port.kind === 'led_strip' && typeof cfg.length === 'number') return cfg.length
@@ -368,16 +368,26 @@ function startDrawingLed() {
 }
 
 // ----- ports (hardware outputs assigned to the item) -----
+/** Names of the other board items bound to a port, for the «en ús» note of the dropdowns. */
+function usedBy(portId: number): string[] {
+  return scene.itemsOnPort(portId)
+    .filter(m => m.id !== item.value?.id)
+    .map(m => catalog.pieceById(m.pieceId)?.name ?? `#${m.pieceId}`)
+}
 /**
- * Ports grouped by hardware type of the piece: every port of the type's kind, ticked when it plays
- * that type for the item. A piece with «Llum» and «Moviment» (both relays) gets one group each, so
- * each relay is driven by the actions of its own type; a port ticked under one type is held there.
+ * One dropdown per hardware type of the piece, offering every port of the type's kind, with the
+ * port playing that type for the item. A hardware type drives one port («Llum» is one relay); a
+ * piece with «Llum» and «Moviment» (both relays) gets two dropdowns, which may pick the same port.
  */
-const portGroups = computed(() => roleGroups(item.value, piece.value, catalog.ports))
+const portGroups = computed(() => roleGroups(item.value, piece.value, catalog.ports, usedBy))
 
 /** Hardware types of the piece with no port playing them: their clips reach nothing. */
 const unboundTypes = computed(() =>
   catalog.portsLoaded ? typesWithoutPort(item.value, piece.value, catalog.portById) : [])
+
+/** Ports playing two or more types of the piece: the tracks of all of them drive the same output. */
+const sharedRolePorts = computed(() =>
+  catalog.portsLoaded ? sharedRoles(item.value, piece.value, catalog.portById) : [])
 
 /** Bound ports whose role the piece cannot use (type removed from the piece, or another kind). */
 const badBindings = computed(() =>
@@ -391,10 +401,25 @@ const badBindings = computed(() =>
 const stalePortIds = computed(() =>
   catalog.portsLoaded ? (item.value?.ports ?? []).filter(id => !catalog.portById(id)) : [])
 
-/** Binds the port to the item as the given type, or unbinds it. */
-function setPort(portId: number, typeId: number, checked: boolean) {
+/** Text of a dropdown option: the port, its pin, who else uses it and whether it already plays another type of this piece. */
+function portOptionLabel(option: RoleOption): string {
+  const parts = [option.port.name]
+  if (option.port.pin != null) parts.push(`pin ${option.port.pin}`)
+  if (option.usedBy.length) parts.push(`${option.port.kind === 'led_strip' ? 'a la tira' : 'en ús'}: ${option.usedBy.join(', ')}`)
+  if (option.alsoPlays.length) parts.push(`fa de ${option.alsoPlays.map(t => `«${t.name}»`).join(' i ')}`)
+  return parts.join(' · ')
+}
+
+/** Makes the chosen port (or none) the one playing the type for the item. */
+function setTypePort(typeId: number, value: string) {
   if (!item.value) return
-  scene.updateItem(item.value.id, checked ? withPortRole(item.value, portId, typeId) : withoutPort(item.value, portId))
+  const portId = value === '' ? null : Number(value)
+  scene.updateItem(item.value.id, withTypePort(item.value, catalog.portById, typeId, portId))
+}
+
+/** The port stops playing the type (an older scene bound several ports to one type). */
+function removeRole(portId: number, typeId: number) {
+  if (item.value) scene.updateItem(item.value.id, withoutRole(item.value, catalog.portById, portId, typeId))
 }
 
 function removePort(portId: number) {
@@ -659,30 +684,40 @@ watch(stripsOfItem, (strips) => {
         @change="setRotation(Number(($event.target as HTMLInputElement).value))">
     </div>
 
-    <!-- Ports: sortides de maquinari assignades (cap, una o diverses), agrupades pel tipus de l'article que fan -->
+    <!-- Ports: un desplegable per tipus amb sortida de l'article; cada tipus mou un sol port -->
     <div class="mt-3 flex flex-col gap-1 border-t border-line pt-3">
       <span class="text-[11px] font-semibold uppercase tracking-[.08em] text-ink-muted">Ports</span>
       <template v-if="portGroups.length">
         <div v-for="g in portGroups" :key="g.type.id" class="flex flex-col gap-1" :class="portGroups.length > 1 ? 'mt-1' : ''">
-          <span v-if="portGroups.length > 1" class="text-[11.5px] font-medium text-ink-soft">
+          <label v-if="portGroups.length > 1" class="text-[11.5px] font-medium text-ink-soft" :for="'port-' + g.type.id">
             {{ g.type.name }} <span class="font-normal text-ink-muted">· {{ kindLabel(g.type.kind) }}</span>
-          </span>
-          <p v-if="g.ports.length === 0" class="text-[11.5px] text-ink-muted">
+          </label>
+          <p v-if="g.options.length === 0" class="text-[11.5px] text-ink-muted">
             No hi ha cap port de {{ kindLabel(g.type.kind) }} a l’organització.
           </p>
-          <label v-for="row in g.ports" :key="row.port.id" class="flex items-center gap-2 text-[12.5px]"
-            :class="row.heldBy ? 'text-ink-muted' : 'text-ink'">
-            <input type="checkbox" :checked="row.selected" :disabled="!!row.heldBy"
-              @change="setPort(row.port.id, g.type.id, ($event.target as HTMLInputElement).checked)">
-            <span class="min-w-0 flex-1 truncate" :title="row.port.name">{{ row.port.name }}</span>
-            <span v-if="row.heldBy" class="flex-shrink-0 text-[11px] text-ink-muted">fa de «{{ row.heldBy.name }}»</span>
-            <span v-else-if="row.port.pin != null" class="flex-shrink-0 text-[11px] text-ink-muted">pin {{ row.port.pin }}</span>
-          </label>
-          <p v-if="g.ports.length && unboundTypes.some(t => t.id === g.type.id)" class="text-[11px] text-warn">
+          <select v-else :id="'port-' + g.type.id" class="field" :value="g.selected?.id ?? ''"
+            @change="setTypePort(g.type.id, ($event.target as HTMLSelectElement).value)">
+            <option value="">Sense port</option>
+            <option v-for="o in g.options" :key="o.port.id" :value="o.port.id">{{ portOptionLabel(o) }}</option>
+          </select>
+          <!-- Older scenes could bind several ports to one type: a type drives one port, so the rest are to remove -->
+          <div v-if="g.extras.length" class="mt-1 flex flex-col gap-1 rounded-[6px] border border-danger-soft bg-danger-soft p-2">
+            <span class="text-[11px] font-semibold text-danger">«{{ g.type.name }}» té més d’un port</span>
+            <div v-for="extra in g.extras" :key="'extra' + extra.id" class="flex items-center gap-2 text-[12.5px] text-ink">
+              <span class="min-w-0 flex-1 truncate" :title="extra.name">{{ extra.name }}</span>
+              <button class="btn btn-danger !h-6 !px-2 !text-[11px]" @click="removeRole(extra.id, g.type.id)">Treu</button>
+            </div>
+            <p class="text-[11px] text-ink-muted">Un tipus mou un sol port. Treu els sobrants o tria’n un altre al desplegable.</p>
+          </div>
+          <p v-if="g.options.length && unboundTypes.some(t => t.id === g.type.id)" class="text-[11px] text-warn">
             <template v-if="portGroups.length > 1">Cap port fa de «{{ g.type.name }}»: les seves accions no arribaran al maquinari.</template>
             <template v-else>Sense port, les accions no arribaran al maquinari.</template>
           </p>
         </div>
+        <!-- The same port chosen for two types of the piece: allowed, but both tracks drive it -->
+        <p v-for="shared in sharedRolePorts" :key="'shared-role' + shared.port.id" class="mt-1 text-[11px] text-warn">
+          «{{ shared.port.name }}» fa de {{ shared.types.map(t => `«${t.name}»`).join(' i ') }}: les pistes de tots dos tipus mouen la mateixa sortida.
+        </p>
       </template>
       <p v-else class="text-[11.5px] text-ink-muted">
         Aquest article no té cap tipus amb sortida de maquinari.
@@ -698,7 +733,7 @@ watch(stripsOfItem, (strips) => {
           </span>
           <button class="btn btn-danger !h-6 !px-2 !text-[11px]" @click="removePort(b.port.id)">Treu</button>
         </div>
-        <p class="text-[11px] text-ink-muted">Treu-los i marca el port correcte a la llista de dalt.</p>
+        <p class="text-[11px] text-ink-muted">Treu-los i tria el port correcte al desplegable de dalt.</p>
       </div>
 
       <!-- Pieces sharing a LED strip: their order along the strip decides which LEDs each one gets -->
@@ -744,7 +779,7 @@ watch(stripsOfItem, (strips) => {
           <span class="min-w-0 flex-1 truncate">Port {{ id }} (eliminat)</span>
           <button class="btn btn-danger !h-6 !px-2 !text-[11px]" @click="removePort(id)">Treu</button>
         </div>
-        <p class="text-[11px] text-ink-muted">Treu-los i marca el port nou de la llista de dalt.</p>
+        <p class="text-[11px] text-ink-muted">Treu-los i tria el port nou al desplegable de dalt.</p>
       </div>
     </div>
 

@@ -53,11 +53,13 @@ export interface SceneItem {
    */
   ports?: number[]
   /**
-   * Piece type each assigned port plays for this item (port id → piece type id). An action of a
-   * type drives the ports playing that type, so a piece with two relay types («Llum» and
-   * «Moviment») gets one relay per type. A port without an entry plays its own piece type.
+   * Piece type each assigned port plays for this item (port id → piece type id, or a list of type
+   * ids when the port plays several types of the piece). An action of a type drives the port
+   * playing that type: a hardware type drives one port, so a piece with two relay types («Llum»
+   * and «Moviment») gets one relay per type, or the same relay for both when it was chosen for
+   * both. A port without an entry plays its own piece type.
    */
-  portTypes?: Record<string, number>
+  portTypes?: Record<string, number | number[]>
   /**
    * Where the LEDs of the piece sit on the board: a polyline the LEDs are spread along, LED 0 at
    * the first point, in fractions of the item's size so it follows resizes and rotations. Absent:

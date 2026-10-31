@@ -7,7 +7,7 @@ import type {
 import type { OutputKind } from '~/types/catalog'
 import type { SceneDocument } from '~/types/editor'
 import { issue, type ShowIssue } from '~/types/show'
-import { portRole } from '~/utils/portRoles'
+import { portRoles } from '~/utils/portRoles'
 
 // Export bundle: the editor document verbatim (so it can be re-imported into another timeline)
 // plus a resolved execution plan: every clip becomes a step with its action and parameter values
@@ -159,26 +159,49 @@ export function buildExecutionPlan(doc: SceneDocument, catalog: CatalogLookups):
         issues.push(issue('error', 'E_PORT_STALE', `El port ${portId} assignat a «${piece?.name ?? item.id}» ja no existeix.`))
         continue
       }
-      // The role must be a type of the piece and of the port's kind; checked like the backend does.
-      const role = portRole(item, port)
-      if (piece && role != null) {
-        const type = piece.pieceTypes.find(t => t.id === role)
-        if (!type) {
-          issues.push(issue('error', 'E_PORT_TYPE_MISMATCH', `El port «${port.name}» fa d'un tipus que «${piece.name}» no té.`, { port: port.name }))
-        } else if (type.kind != null && type.kind !== port.kind) {
-          issues.push(issue('error', 'E_PORT_KIND_MISMATCH', `El port «${port.name}» (${port.kind}) no pot fer de «${type.name}» (${type.kind}).`, { port: port.name }))
+      // Each role the port plays must be a type of the piece and of the port's kind; checked like
+      // the backend does. The plan lists the port once per role, so a step of either type finds it.
+      const roles = portRoles(item, port)
+      for (const role of roles) {
+        if (piece) {
+          const type = piece.pieceTypes.find(t => t.id === role)
+          if (!type) {
+            issues.push(issue('error', 'E_PORT_TYPE_MISMATCH', `El port «${port.name}» fa d'un tipus que «${piece.name}» no té.`, { port: port.name }))
+          } else if (type.kind != null && type.kind !== port.kind) {
+            issues.push(issue('error', 'E_PORT_KIND_MISMATCH', `El port «${port.name}» (${port.kind}) no pot fer de «${type.name}» (${type.kind}).`, { port: port.name }))
+          }
+        }
+        ports.push({
+          id: port.id,
+          name: port.name,
+          kind: port.kind,
+          pieceTypeId: role,
+          pin: port.pin,
+          config: port.config ?? {},
+          position: port.position,
+          parameters: port.parameters
+        })
+      }
+      if (roles.length === 0) {
+        ports.push({ id: port.id, name: port.name, kind: port.kind, pieceTypeId: null, pin: port.pin, config: port.config ?? {}, position: port.position, parameters: port.parameters })
+      }
+    }
+    if (piece) {
+      // A type drives one port: several ports playing it (older scenes) and one port playing
+      // several types of the piece (chosen on purpose) are warned about, not refused.
+      const hardware = piece.pieceTypes
+      for (const type of hardware) {
+        const playing = ports.filter(p => p.pieceTypeId === type.id)
+        if (playing.length > 1) {
+          issues.push(issue('warning', 'W_PORT_ROLE_DUPLICATE', `«${piece.name}» té ${playing.length} ports fent de «${type.name}» (${playing.map(p => p.name).join(', ')}): un tipus hauria de moure un sol port.`, { port: playing[0]!.name }))
         }
       }
-      ports.push({
-        id: port.id,
-        name: port.name,
-        kind: port.kind,
-        pieceTypeId: role,
-        pin: port.pin,
-        config: port.config ?? {},
-        position: port.position,
-        parameters: port.parameters
-      })
+      for (const port of ports.filter((p, i, all) => all.findIndex(o => o.id === p.id) === i)) {
+        const played = hardware.filter(t => ports.some(p => p.id === port.id && p.pieceTypeId === t.id))
+        if (played.length > 1) {
+          issues.push(issue('warning', 'W_PORT_SHARED_ROLES', `El port «${port.name}» fa de ${played.map(t => `«${t.name}»`).join(' i ')} de «${piece.name}»: les pistes de tots dos tipus el mouen.`, { port: port.name }))
+        }
+      }
     }
     return { itemId: item.id, pieceId: item.pieceId, pieceName: piece?.name ?? null, ports }
   })

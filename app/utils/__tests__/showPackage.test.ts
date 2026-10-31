@@ -102,6 +102,42 @@ describe('buildShowPackage', () => {
     expect(codes(bad.issues.filter(i => i.level === 'error'))).toContain('E_PORT_KIND_MISMATCH')
   })
 
+  it('a port playing two types of the piece receives the steps of both, with a warning', () => {
+    const focosPiece = { ...fx.pieces[0]!, pieceTypes: [{ id: fx.RELAY_TYPE, name: 'Relé', kind: 'relay' as const }, { id: fx.TIMED_RELAY_TYPE, name: 'Llum', kind: 'relay' as const }] }
+    const lookups = { ...fx.catalogLookups, pieceById: (id: number) => (id === 1 ? focosPiece : fx.catalogLookups.pieceById(id)) }
+    const doc = fx.document()
+    const focos = doc.items.find(i => i.id === 'i-focos')!
+    focos.ports = [1]
+    focos.portTypes = { 1: [fx.RELAY_TYPE, fx.TIMED_RELAY_TYPE] }
+    doc.clips = [
+      { id: 'k1', trackId: 't-i-focos', pieceTypeActionId: 13, startMs: 0, durationMs: 1000, paramValues: {} },
+      { id: 'k2', trackId: 't-i-focos', pieceTypeActionId: 41, startMs: 500, durationMs: 2000, paramValues: {} }
+    ]
+    const { body, issues, pieces } = assembleShowPackage(input({ doc, catalog: lookups }))
+    expect(issues.filter(i => i.level === 'error')).toEqual([])
+    expect(body.timeline.filter(e => e.target === 'Focos').map(e => [e.t, e.action])).toEqual([[0, 'turn_on'], [500, 'turn_on']])
+    const shared = issues.filter(i => i.code === 'W_PORT_SHARED_ROLES')
+    expect(shared).toHaveLength(1)
+    expect(shared[0]!.message).toContain('«Relé»')
+    expect(shared[0]!.message).toContain('«Llum»')
+    expect(shared[0]!.message).toContain('Focos')
+    expect(pieces.Focos).toEqual(['Focos'])
+  })
+
+  it('warns when several ports play the same type of the piece (older scenes)', () => {
+    const doc = fx.document()
+    const focos = doc.items.find(i => i.id === 'i-focos')!
+    focos.ports = [1, 2]
+    focos.portTypes = { 2: fx.RELAY_TYPE }
+    doc.items = doc.items.filter(i => i.id !== 'i-sembra')
+    const { issues } = assembleShowPackage(input({ doc }))
+    const dup = issues.filter(i => i.code === 'W_PORT_ROLE_DUPLICATE')
+    expect(dup).toHaveLength(1)
+    expect(dup[0]!.message).toContain('2 ports')
+    expect(dup[0]!.message).toContain('Focos, Sembra')
+    expect(issues.filter(i => i.code === 'W_PORT_SHARED_ROLES')).toEqual([])
+  })
+
   it('returns no package while there are errors', async () => {
     const doc = fx.document()
     doc.items.find(i => i.id === 'i-focos')!.ports = []
