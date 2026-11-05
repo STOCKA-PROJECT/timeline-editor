@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { portRoles } from '~/utils/portRoles'
 import type { SceneClip, SceneLayer, SceneTrack } from '~/types/editor'
 import { assignLanes, constrainMove, constrainResize, constrainResizeStart } from '~/utils/clipBounds'
 import { formatTimeInput, timelineViewMs } from '~/utils/playRange'
@@ -37,16 +38,26 @@ const rangeBand = computed(() => {
 // ---- layer filter and folders ----
 /**
  * Tracks shown: those of the selected layers (every layer when none is selected), and only for
- * pieces with available actions (also hides tracks of actionless pieces in older scenes).
+ * pieces with available actions (also hides tracks of actionless pieces in older scenes). The tracks
+ * of an item stay together, in the order of its first one: the general ones, then one per port.
  */
-const visibleTracks = computed(() =>
-  scene.tracks.filter((track) => {
+const visibleTracks = computed(() => {
+  const fits = (track: SceneTrack) => {
     const item = scene.itemById(track.itemId)
     if (!item) return false
     if (selection.selectedLayerIds.length && !selection.selectedLayerIds.includes(item.layerId)) return false
     return catalog.actionsForPiece(catalog.pieceById(item.pieceId)).length > 0
-  })
-)
+  }
+  const out: SceneTrack[] = []
+  const seen = new Set<string>()
+  for (const track of scene.tracks) {
+    if (seen.has(track.itemId) || !fits(track)) continue
+    seen.add(track.itemId)
+    const mine = scene.tracks.filter(t => t.itemId === track.itemId)
+    out.push(...mine.filter(t => t.portId == null), ...mine.filter(t => t.portId != null))
+  }
+  return out
+})
 
 interface TrackGroup { layer: SceneLayer, tracks: SceneTrack[] }
 
@@ -107,6 +118,27 @@ function trackItemName(track: SceneTrack): string {
   return item ? (catalog.pieceById(item.pieceId)?.name ?? `#${item.pieceId}`) : track.name
 }
 
+/** The port a track drives, when it drives one: shown next to the piece name («Pastor · Llum dreta»). */
+function trackPortName(track: SceneTrack): string | null {
+  if (track.portId == null) return null
+  return catalog.portById(track.portId)?.name ?? track.name
+}
+
+/** A track driving a port the item no longer has (or that no longer exists): its clips reach nothing. */
+function trackPortLost(track: SceneTrack): boolean {
+  if (track.portId == null || !catalog.portsLoaded) return false
+  const item = scene.itemById(track.itemId)
+  return !item?.ports?.includes(track.portId) || !catalog.portById(track.portId)
+}
+
+/** Removes a port track with its clips (the general track of an item stays). */
+function removePortTrack(track: SceneTrack) {
+  const n = scene.clipsForTrack(track.id).length
+  if (n > 0 && !window.confirm(`Treure la pista «${trackItemName(track)} · ${trackPortName(track)}» i els seus ${n} clips?`)) return
+  if (selection.selectedClipId && scene.clipsForTrack(track.id).some(c => c.id === selection.selectedClipId)) selection.selectClip(null)
+  scene.removeTrack(track.id)
+}
+
 function clipLeft(c: SceneClip) { return c.startMs * pxPerMs.value }
 function clipWidth(c: SceneClip) { return Math.max(6, c.durationMs * pxPerMs.value) }
 
@@ -128,8 +160,12 @@ async function addClipAt(track: SceneTrack, ms: number) {
   const item = scene.itemById(track.itemId)
   const piece = catalog.pieceById(item?.pieceId ?? -1)
   await catalog.ensureActionsForPiece(piece)
-  // Clips always carry an action; without one available the clip is not created.
-  const firstAction = catalog.actionsForPiece(piece)[0]?.id
+  // Clips always carry an action; without one available the clip is not created. On a track that
+  // drives one port, the first action of a type that port plays.
+  const port = track.portId != null && item?.ports?.includes(track.portId) ? catalog.portById(track.portId) : undefined
+  const types = port && item ? portRoles(item, port) : null
+  const firstAction = catalog.actionsForPiece(piece)
+    .find(a => !types || types.includes(catalog.typeIdOfAction(a.id) ?? -1))?.id
   if (firstAction == null) return
   // A piece may run several actions at once, so a new clip can start anywhere (it lands on a
   // free sub-lane of the track when it overlaps another clip).
@@ -343,11 +379,20 @@ function selectTrackItem(track: SceneTrack) {
               :style="{ width: labelW + 'px' }"
               role="button"
               tabindex="0"
-              :title="'Selecciona «' + trackItemName(track) + '» al tauler'"
+              :title="'Selecciona «' + trackItemName(track) + '» al tauler' + (trackPortName(track) ? ' · aquesta pista només mou «' + trackPortName(track) + '»' : '')"
               @click="selectTrackItem(track)"
               @keydown.enter.prevent="selectTrackItem(track)"
               @keydown.space.prevent="selectTrackItem(track)">
-              <span class="truncate">{{ trackItemName(track) }}</span>
+              <span class="truncate">
+                {{ trackItemName(track) }}<template v-if="trackPortName(track)"> <span class="font-normal" :class="trackPortLost(track) ? 'text-danger' : 'text-ink-muted'">· {{ trackPortName(track) }}</span></template>
+              </span>
+              <!-- A port track can go away (the general track of the item stays) -->
+              <button
+                v-if="track.portId != null"
+                type="button"
+                class="ml-auto flex-shrink-0 rounded px-1 text-[12px] leading-none text-ink-muted hover:bg-danger-soft hover:text-danger"
+                :title="trackPortLost(track) ? 'Aquesta pista anava a un port que l’article ja no té. Treu-la' : 'Treu la pista del port «' + trackPortName(track) + '»'"
+                @click.stop="removePortTrack(track)">×</button>
               <!-- Same splitter on every row so the column can be resized from anywhere along its edge -->
               <div
                 class="splitter absolute right-0 top-0 h-full w-1.5 cursor-col-resize"

@@ -1,5 +1,9 @@
 # Un puerto por tipo (31-10-2026)
 
+> **Superado el 04-11-2026** por [`pistas-por-puerto.md`](pistas-por-puerto.md): un tipo puede mover varios puertos
+> (dos luces o dos motores independientes en la misma pieza) y cada puerto tiene su pista. `W_PORT_ROLE_DUPLICATE` ya no
+> existe. El resto de este documento (roles por puerto, `portTypes`, un puerto que hace de dos tipos) sigue vigente.
+
 Complemento de los roles por puerto (`portTypes`, 30-10-2026). Hasta ahora el inspector del editor ofrecía, por cada
 tipo con salida de un artículo, una lista de casillas con todos los puertos de ese `kind`, y nada impedía marcar
 varios para el mismo tipo. Decisiones de Joan:

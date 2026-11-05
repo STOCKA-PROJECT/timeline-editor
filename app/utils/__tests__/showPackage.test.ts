@@ -124,18 +124,93 @@ describe('buildShowPackage', () => {
     expect(pieces.Focos).toEqual(['Focos'])
   })
 
-  it('warns when several ports play the same type of the piece (older scenes)', () => {
+  it('two ports playing the same type both receive a clip of the general track, with one W_PORTS_TOGETHER', () => {
     const doc = fx.document()
     const focos = doc.items.find(i => i.id === 'i-focos')!
     focos.ports = [1, 2]
     focos.portTypes = { 2: fx.RELAY_TYPE }
     doc.items = doc.items.filter(i => i.id !== 'i-sembra')
-    const { issues } = assembleShowPackage(input({ doc }))
-    const dup = issues.filter(i => i.code === 'W_PORT_ROLE_DUPLICATE')
-    expect(dup).toHaveLength(1)
-    expect(dup[0]!.message).toContain('2 ports')
-    expect(dup[0]!.message).toContain('Focos, Sembra')
+    const { body, issues } = assembleShowPackage(input({ doc }))
+    expect(body.timeline.filter(e => e.t === 0 && e.action === 'turn_on' && e.target !== 'LlumsE').map(e => e.target)).toEqual(['Focos', 'Sembra'])
+    const together = issues.filter(i => i.code === 'W_PORTS_TOGETHER')
+    expect(together).toHaveLength(1)
+    expect(together[0]!.message).toContain('2 ports')
+    expect(together[0]!.message).toContain('Focos, Sembra')
+    expect(together[0]!.message).toContain('pista per port')
     expect(issues.filter(i => i.code === 'W_PORT_SHARED_ROLES')).toEqual([])
+    // Without a clip of that type on the general track there is nothing to warn about.
+    doc.clips = doc.clips.filter(c => c.trackId !== 't-i-focos')
+    expect(assembleShowPackage(input({ doc })).issues.filter(i => i.code === 'W_PORTS_TOGETHER')).toEqual([])
+  })
+
+  describe('track ports (a track driving one port of the item)', () => {
+    function twoRelays(roles: Record<string, number | number[]>) {
+      const doc = fx.document()
+      const focos = doc.items.find(i => i.id === 'i-focos')!
+      focos.ports = [1, 2]
+      focos.portTypes = roles
+      doc.items = doc.items.filter(i => i.id !== 'i-sembra')
+      doc.tracks = [...doc.tracks, { id: 'tp1', itemId: 'i-focos', name: 'Focos', portId: 1 }, { id: 'tp2', itemId: 'i-focos', name: 'Sembra', portId: 2 }]
+      return doc
+    }
+
+    it('a step of a track driving one port reaches only that port; the general track reaches both and warns once', () => {
+      const doc = twoRelays({ 2: fx.RELAY_TYPE })
+      doc.clips = [
+        { id: 'k1', trackId: 'tp1', pieceTypeActionId: 13, startMs: 0, durationMs: 1000, paramValues: {} },
+        { id: 'k2', trackId: 'tp2', pieceTypeActionId: 13, startMs: 500, durationMs: 1000, paramValues: {} },
+        { id: 'k3', trackId: 't-i-focos', pieceTypeActionId: 14, startMs: 1000, durationMs: 1000, paramValues: {} }
+      ]
+      const { body, issues, pieces } = assembleShowPackage(input({ doc }))
+      expect(issues.filter(i => i.level === 'error')).toEqual([])
+      expect(body.timeline.map(e => `${e.t} ${e.target}.${e.action}`)).toEqual(['0 Focos.turn_on', '500 Sembra.turn_on', '1000 Focos.turn_off', '1000 Sembra.turn_off'])
+      expect(issues.filter(i => i.code === 'W_PORTS_TOGETHER')).toHaveLength(1)
+      expect(pieces).toMatchObject({ Focos: ['Focos'], Sembra: ['Focos'] })
+    })
+
+    it('with every clip on a port track nothing warns, and the hash equals the same events from two items', async () => {
+      const doc = twoRelays({ 2: fx.RELAY_TYPE })
+      doc.clips = [
+        { id: 'k1', trackId: 'tp1', pieceTypeActionId: 13, startMs: 0, durationMs: 1000, paramValues: {} },
+        { id: 'k2', trackId: 'tp2', pieceTypeActionId: 13, startMs: 500, durationMs: 1000, paramValues: {} }
+      ]
+      const pinned = await buildShowPackage(input({ doc }))
+      expect([...pinned.errors, ...pinned.warnings].filter(i => i.code === 'W_PORTS_TOGETHER' || i.level === 'error')).toEqual([])
+      const twoItems = fx.document()
+      twoItems.clips = [
+        { id: 'k1', trackId: 't-i-focos', pieceTypeActionId: 13, startMs: 0, durationMs: 1000, paramValues: {} },
+        { id: 'k2', trackId: 't-i-sembra', pieceTypeActionId: 13, startMs: 500, durationMs: 1000, paramValues: {} }
+      ]
+      const plain = await buildShowPackage(input({ doc: twoItems }))
+      expect(pinned.pkg!.meta.hash).toBe(plain.pkg!.meta.hash)
+      // The execution plan carries the track's port on the step, and only there.
+      const plan = (await import('~/utils/exportBundle')).buildExecutionPlan(doc, fx.catalogLookups)
+      expect(plan.schedule.map(s => s.portId)).toEqual([1, 2])
+      expect('portId' in (await import('~/utils/exportBundle')).buildExecutionPlan(twoItems, fx.catalogLookups).schedule[0]!).toBe(false)
+    })
+
+    it('a clip whose type the track\'s port does not play is E_TRACK_PORT_MISMATCH and emits nothing', () => {
+      const focosPiece = { ...fx.pieces[0]!, pieceTypes: [{ id: fx.RELAY_TYPE, name: 'Relé', kind: 'relay' as const }, { id: fx.TIMED_RELAY_TYPE, name: 'Llum', kind: 'relay' as const }] }
+      const lookups = { ...fx.catalogLookups, pieceById: (id: number) => (id === 1 ? focosPiece : fx.catalogLookups.pieceById(id)) }
+      const doc = twoRelays({ 2: fx.TIMED_RELAY_TYPE })
+      doc.clips = [{ id: 'k1', trackId: 'tp2', pieceTypeActionId: 13, startMs: 0, durationMs: 1000, paramValues: {} }]
+      const { body, issues } = assembleShowPackage(input({ doc, catalog: lookups }))
+      expect(codes(issues.filter(i => i.level === 'error'))).toEqual(['E_TRACK_PORT_MISMATCH'])
+      expect(issues[0]!.clipId).toBe('k1')
+      expect(issues[0]!.port).toBe('Sembra')
+      expect(issues[0]!.message).toContain('«Relé»')
+      expect(body.timeline).toEqual([])
+    })
+
+    it('a track driving a port the item is not bound to is E_TRACK_PORT_UNBOUND on its clips', () => {
+      const doc = twoRelays({ 2: fx.RELAY_TYPE })
+      doc.tracks.push({ id: 'tp3', itemId: 'i-focos', name: 'LlumsE', portId: 3 })
+      doc.clips = [{ id: 'k1', trackId: 'tp3', pieceTypeActionId: 13, startMs: 0, durationMs: 1000, paramValues: {} }]
+      const { body, issues } = assembleShowPackage(input({ doc }))
+      expect(codes(issues.filter(i => i.level === 'error'))).toEqual(['E_TRACK_PORT_UNBOUND'])
+      expect(issues.find(i => i.code === 'E_TRACK_PORT_UNBOUND')!.clipId).toBe('k1')
+      expect(body.timeline).toEqual([])
+    })
   })
 
   it('returns no package while there are errors', async () => {

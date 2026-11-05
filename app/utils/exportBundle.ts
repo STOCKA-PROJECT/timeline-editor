@@ -48,6 +48,11 @@ export interface ExecutionStep {
   clipId: string
   /** The board item (piece) this step drives; its ports are in {@link ExecutionPlan.items}. */
   itemId: string
+  /**
+   * The one port of the item the step drives (its track's `portId`); absent, the step drives every
+   * port of the item playing the action's type.
+   */
+  portId?: number
   startMs: number
   durationMs: number
   /** `pieceTypeId` is the piece type that owns the action; it selects the item's target ports. */
@@ -187,17 +192,9 @@ export function buildExecutionPlan(doc: SceneDocument, catalog: CatalogLookups):
       }
     }
     if (piece) {
-      // A type drives one port: several ports playing it (older scenes) and one port playing
-      // several types of the piece (chosen on purpose) are warned about, not refused.
-      const hardware = piece.pieceTypes
-      for (const type of hardware) {
-        const playing = ports.filter(p => p.pieceTypeId === type.id)
-        if (playing.length > 1) {
-          issues.push(issue('warning', 'W_PORT_ROLE_DUPLICATE', `«${piece.name}» té ${playing.length} ports fent de «${type.name}» (${playing.map(p => p.name).join(', ')}): un tipus hauria de moure un sol port.`, { port: playing[0]!.name }))
-        }
-      }
+      // One port playing several types of the piece (chosen on purpose) is warned about, not refused.
       for (const port of ports.filter((p, i, all) => all.findIndex(o => o.id === p.id) === i)) {
-        const played = hardware.filter(t => ports.some(p => p.id === port.id && p.pieceTypeId === t.id))
+        const played = piece.pieceTypes.filter(t => ports.some(p => p.id === port.id && p.pieceTypeId === t.id))
         if (played.length > 1) {
           issues.push(issue('warning', 'W_PORT_SHARED_ROLES', `El port «${port.name}» fa de ${played.map(t => `«${t.name}»`).join(' i ')} de «${piece.name}»: les pistes de tots dos tipus el mouen.`, { port: port.name }))
         }
@@ -206,11 +203,14 @@ export function buildExecutionPlan(doc: SceneDocument, catalog: CatalogLookups):
     return { itemId: item.id, pieceId: item.pieceId, pieceName: piece?.name ?? null, ports }
   })
 
-  const itemIdByTrack = new Map(doc.tracks.map(t => [t.id, t.itemId]))
+  const trackById = new Map(doc.tracks.map(t => [t.id, t]))
+  /** Types with clips on a track without port, by item: those clips drive every port playing the type. */
+  const typesOnGeneralTracks = new Map<string, Set<number>>()
   const schedule: ExecutionStep[] = []
   for (const clip of [...doc.clips].sort((a, b) => a.startMs - b.startMs)) {
-    const itemId = itemIdByTrack.get(clip.trackId)
-    if (!itemId) {
+    const track = trackById.get(clip.trackId)
+    const itemId = track?.itemId
+    if (!track || !itemId) {
       issues.push(issue('warning', 'W_TRACK_MISSING', `El clip ${clip.label ?? clip.id} apunta a una pista inexistent i s'ha omès.`, { clipId: clip.id }))
       continue
     }
@@ -227,17 +227,36 @@ export function buildExecutionPlan(doc: SceneDocument, catalog: CatalogLookups):
       } else {
         action = { id: def.id, name: def.name, displayName: def.displayName, pieceTypeId: catalog.typeIdOfAction(def.id) ?? null }
         params = resolveParams(def, clip.paramValues, clip.durationMs)
+        if (track.portId == null && action.pieceTypeId != null) {
+          if (!typesOnGeneralTracks.has(itemId)) typesOnGeneralTracks.set(itemId, new Set())
+          typesOnGeneralTracks.get(itemId)!.add(action.pieceTypeId)
+        }
       }
     }
     schedule.push({
       clipId: clip.id,
       itemId,
+      ...(track.portId != null ? { portId: track.portId } : {}),
       startMs: clip.startMs,
       durationMs: clip.durationMs,
       action,
       params,
       ...(clip.label ? { label: clip.label } : {})
     })
+  }
+
+  // Several ports may play the same type of a piece (two independent lights): the clips of a track
+  // without port drive all of them at once, warned about so the author adds a track per port.
+  for (const item of items) {
+    const piece = catalog.pieceById(item.pieceId)
+    const general = typesOnGeneralTracks.get(item.itemId)
+    if (!piece || !general) continue
+    for (const type of piece.pieceTypes) {
+      const playing = item.ports.filter(p => p.pieceTypeId === type.id)
+      if (playing.length > 1 && general.has(type.id)) {
+        issues.push(issue('warning', 'W_PORTS_TOGETHER', `Els clips de «${type.name}» a la pista general de «${piece.name}» mouen ${playing.length} ports alhora (${playing.map(p => p.name).join(', ')}): crea una pista per port per moure'ls per separat.`, { port: playing[0]!.name }))
+      }
+    }
   }
 
   return { durationMs: doc.durationMs, fps: doc.fps ?? 30, items, schedule, issues, warnings: issues.map(i => i.message) }

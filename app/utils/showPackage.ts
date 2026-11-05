@@ -124,10 +124,24 @@ export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPac
     const item = itemById.get(step.itemId)
     if (!item) continue
     const label = step.label ?? step.action.displayName
-    // Each port plays one type of the piece (its `portTypes` role, else its own type): the action
-    // reaches the ports playing the action's type, so a piece with two relay types drives one
-    // relay per type.
-    const targets = item.ports.filter(p => p.pieceTypeId === step.action!.pieceTypeId)
+    // Each port plays one or more types of the piece (its `portTypes` roles, else its own type): the
+    // action reaches the ports playing the action's type, so a piece with two relay types drives one
+    // relay per type. A step of a track driving one port reaches only that port.
+    const targets = item.ports.filter(p => p.pieceTypeId === step.action!.pieceTypeId && (step.portId == null || p.id === step.portId))
+    if (targets.length === 0 && step.portId != null) {
+      const trackPort = item.ports.find(p => p.id === step.portId)
+      const typeName = input.catalog.pieceById(item.pieceId)?.pieceTypes.find(t => t.id === step.action!.pieceTypeId)?.name
+      if (!trackPort) {
+        issues.push(issue('error', 'E_TRACK_PORT_UNBOUND',
+          `La pista del clip «${label}» (${step.startMs} ms) va a un port que «${item.pieceName ?? item.itemId}» ja no té: torna a lligar-lo o treu-lo de la pista.`,
+          { clipId: step.clipId }))
+      } else {
+        issues.push(issue('error', 'E_TRACK_PORT_MISMATCH',
+          `El port «${trackPort.name}» de la pista del clip «${label}» (${step.startMs} ms) no fa de «${typeName ?? 'el tipus de l\'acció'}»: mou el clip a la pista general o a la d'un port que en faci.`,
+          { clipId: step.clipId, port: trackPort.name }))
+      }
+      continue
+    }
     if (targets.length === 0) {
       const typeName = input.catalog.pieceById(item.pieceId)?.pieceTypes.find(t => t.id === step.action!.pieceTypeId)?.name
       issues.push(issue('error', 'E_NO_PORT',

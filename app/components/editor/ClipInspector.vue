@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import type { ActionParameterDto } from '~/types/api'
+import type { SceneTrack } from '~/types/editor'
+import type { PortLike } from '~/utils/portRoles'
 import { catalog as outputCatalog, actionParams, isOutputKind, type CatalogType } from '~/types/catalog'
 import { assetNameFor, audioFileWindow, formatClock } from '~/utils/audioAssets'
 import { LED_PATH_PRESET_LABELS, ledPathOf, presetOfPath, presetPath, reverseLedPath, type LedPathPreset } from '~/utils/ledPath'
 import { layoutStrip } from '~/utils/stripLayout'
 import { getAudioContext, loadDecodedAudio } from '~/utils/audioCache'
 import { parseRgb } from '~/utils/showCoerce'
-import { invalidBindings, kindLabel, portPlays, roleGroups, sharedRoles, typesWithoutPort, withTypePort, withoutPort, withoutRole, type RoleOption } from '~/utils/portRoles'
+import { addTypePort, invalidBindings, kindLabel, moveTypePort, portPlays, portRoles, roleGroups, sharedRoles, typesWithoutPort, withoutPort, withoutRole, type RoleOption } from '~/utils/portRoles'
 
 const scene = useSceneStore()
 const selection = useSelectionStore()
@@ -24,8 +26,33 @@ const item = computed(() => {
   return selection.selectedItemId ? scene.itemById(selection.selectedItemId) : null
 })
 const piece = computed(() => catalog.pieceById(item.value?.pieceId ?? -1))
-const actions = computed(() => catalog.actionsForPiece(piece.value))
-const selectedAction = computed(() => actions.value.find(a => a.id === clip.value?.pieceTypeActionId) ?? null)
+const allActions = computed(() => catalog.actionsForPiece(piece.value))
+
+// ---- the clip's track: when it drives one port, only the actions of the types that port plays fit ----
+const clipTrack = computed(() => (clip.value ? scene.trackById(clip.value.trackId) : undefined))
+/** The port the clip's track drives, when it drives one and the item is still bound to it. */
+const trackPort = computed(() => {
+  const portId = clipTrack.value?.portId
+  if (portId == null) return null
+  return (item.value?.ports ?? []).includes(portId) ? catalog.portById(portId) ?? null : null
+})
+/** Whether the clip's track drives a port the item no longer has (or that no longer exists). */
+const trackPortLost = computed(() => clipTrack.value?.portId != null && catalog.portsLoaded && !trackPort.value)
+/** Types the clip's track port plays for the item; null when the track drives every port. */
+const trackPortTypes = computed(() => (trackPort.value && item.value ? portRoles(item.value, trackPort.value) : null))
+/** Actions the clip may take: every action of the piece, or those of the types the track's port plays. */
+const actions = computed(() => {
+  const types = trackPortTypes.value
+  if (!types) return allActions.value
+  return allActions.value.filter(a => types.includes(catalog.typeIdOfAction(a.id) ?? -1))
+})
+/** The clip's action is of a type the track's port does not play: the export refuses it. */
+const actionOffTrackPort = computed(() => {
+  const types = trackPortTypes.value
+  const typeId = clip.value?.pieceTypeActionId != null ? catalog.typeIdOfAction(clip.value.pieceTypeActionId) : undefined
+  return !!types && typeId != null && !types.includes(typeId)
+})
+const selectedAction = computed(() => allActions.value.find(a => a.id === clip.value?.pieceTypeActionId) ?? null)
 
 // The action's duration parameter (if any) IS the clip length, so it is shown as the single
 // "Duración" field below — never as a normal param input or a fixed value.
@@ -269,7 +296,7 @@ watch(piece, p => {
 }, { immediate: true })
 
 function setAction(id: number) {
-  if (!clip.value || !actions.value.some(a => a.id === id)) return
+  if (!clip.value || !allActions.value.some(a => a.id === id)) return
   // Reset param values when switching action.
   scene.updateClip(clip.value.id, { pieceTypeActionId: id, paramValues: {} })
 }
@@ -375,11 +402,34 @@ function usedBy(portId: number): string[] {
     .map(m => catalog.pieceById(m.pieceId)?.name ?? `#${m.pieceId}`)
 }
 /**
- * One dropdown per hardware type of the piece, offering every port of the type's kind, with the
- * port playing that type for the item. A hardware type drives one port («Llum» is one relay); a
- * piece with «Llum» and «Moviment» (both relays) gets two dropdowns, which may pick the same port.
+ * One list per hardware type of the piece, offering every port of the type's kind, with the ports
+ * playing that type for the item: one relay for «Llum», two for a piece with two independent lights.
+ * A piece with «Llum» and «Moviment» (both relays) gets two lists, which may pick the same port.
  */
 const portGroups = computed(() => roleGroups(item.value, piece.value, catalog.ports, usedBy))
+
+/** Types of the piece whose "add another port" dropdown is open (nothing chosen yet). */
+const addingPortFor = ref<number[]>([])
+function startAddingPort(typeId: number) {
+  if (!addingPortFor.value.includes(typeId)) addingPortFor.value = [...addingPortFor.value, typeId]
+}
+function stopAddingPort(typeId: number) {
+  addingPortFor.value = addingPortFor.value.filter(t => t !== typeId)
+}
+watch(() => item.value?.id, () => { addingPortFor.value = [] })
+
+/** Tracks of the item driving one port, by port id, to offer a track per port when a type has several. */
+const portTracks = computed(() => {
+  const out = new Map<number, SceneTrack>()
+  for (const t of item.value ? scene.tracksForItem(item.value.id) : []) if (t.portId != null) out.set(t.portId, t)
+  return out
+})
+/** Gives the port its own track on the timeline (its clips drive only that port) and shows it. */
+function addPortTrack(port: PortLike) {
+  if (!item.value) return
+  scene.ensurePortTrack(item.value.id, port.id, port.name)
+  selection.selectItem(item.value.id)
+}
 
 /** Hardware types of the piece with no port playing them: their clips reach nothing. */
 const unboundTypes = computed(() =>
@@ -410,14 +460,21 @@ function portOptionLabel(option: RoleOption): string {
   return parts.join(' · ')
 }
 
-/** Makes the chosen port (or none) the one playing the type for the item. */
-function setTypePort(typeId: number, value: string) {
+/** Swaps one of the ports a type drives for the chosen one («Sense port» leaves the type with the others). */
+function setTypePort(typeId: number, fromPortId: number, value: string) {
   if (!item.value) return
   const portId = value === '' ? null : Number(value)
-  scene.updateItem(item.value.id, withTypePort(item.value, catalog.portById, typeId, portId))
+  scene.updateItem(item.value.id, moveTypePort(item.value, catalog.portById, typeId, fromPortId, portId))
 }
 
-/** The port stops playing the type (an older scene bound several ports to one type). */
+/** The type starts driving one more port (chosen in the "add" dropdown), or its first one. */
+function addTypePortChosen(typeId: number, value: string) {
+  stopAddingPort(typeId)
+  if (!item.value || value === '') return
+  scene.updateItem(item.value.id, addTypePort(item.value, catalog.portById, typeId, Number(value)))
+}
+
+/** The port stops playing the type. */
 function removeRole(portId: number, typeId: number) {
   if (item.value) scene.updateItem(item.value.id, withoutRole(item.value, catalog.portById, portId, typeId))
 }
@@ -498,10 +555,23 @@ watch(stripsOfItem, (strips) => {
           @change="setAction(Number(($event.target as HTMLSelectElement).value))">
           <!-- Clips saved without an action keep a blank value until a real action is picked. -->
           <option v-if="clip.pieceTypeActionId == null" value="" disabled>Selecciona una acció</option>
+          <!-- An action the track's port does not play stays visible (so the clip shows what it has) but is flagged below. -->
+          <option v-if="actionOffTrackPort && selectedAction" :value="selectedAction.id">{{ selectedAction.displayName }}</option>
           <option v-for="a in actions" :key="a.id" :value="a.id">{{ a.displayName }}</option>
         </select>
-        <p v-if="actions.length === 0" class="text-[11.5px] text-ink-muted">
+        <p v-if="allActions.length === 0" class="text-[11.5px] text-ink-muted">
           Aquest article no té cap acció disponible.
+        </p>
+        <!-- The clip's track drives one port of the item: say which, and whether the action fits it -->
+        <p v-if="trackPort" class="text-[11px]" :class="actionOffTrackPort ? 'text-danger' : 'text-ink-muted'">
+          <template v-if="actionOffTrackPort">
+            El port «{{ trackPort.name }}» d’aquesta pista no fa del tipus d’aquesta acció: mou el clip a la pista general o tria una acció de la llista.
+          </template>
+          <template v-else>Pista del port «{{ trackPort.name }}»: el clip només mou aquesta sortida.</template>
+        </p>
+        <p v-else-if="trackPortLost" class="text-[11px] text-danger">
+          Aquesta pista anava a un port que l’article ja no té: torna a lligar-lo o
+          <button type="button" class="underline" @click="scene.setTrackPort(clip.trackId, null)">fes-la general</button>.
         </p>
       </div>
 
@@ -684,7 +754,7 @@ watch(stripsOfItem, (strips) => {
         @change="setRotation(Number(($event.target as HTMLInputElement).value))">
     </div>
 
-    <!-- Ports: un desplegable per tipus amb sortida de l'article; cada tipus mou un sol port -->
+    <!-- Ports: una llista per tipus amb sortida de l'article; un tipus pot moure més d'un port (dos llums independents) -->
     <div class="mt-3 flex flex-col gap-1 border-t border-line pt-3">
       <span class="text-[11px] font-semibold uppercase tracking-[.08em] text-ink-muted">Ports</span>
       <template v-if="portGroups.length">
@@ -695,20 +765,35 @@ watch(stripsOfItem, (strips) => {
           <p v-if="g.options.length === 0" class="text-[11.5px] text-ink-muted">
             No hi ha cap port de {{ kindLabel(g.type.kind) }} a l’organització.
           </p>
-          <select v-else :id="'port-' + g.type.id" class="field" :value="g.selected?.id ?? ''"
-            @change="setTypePort(g.type.id, ($event.target as HTMLSelectElement).value)">
-            <option value="">Sense port</option>
-            <option v-for="o in g.options" :key="o.port.id" :value="o.port.id">{{ portOptionLabel(o) }}</option>
-          </select>
-          <!-- Older scenes could bind several ports to one type: a type drives one port, so the rest are to remove -->
-          <div v-if="g.extras.length" class="mt-1 flex flex-col gap-1 rounded-[6px] border border-danger-soft bg-danger-soft p-2">
-            <span class="text-[11px] font-semibold text-danger">«{{ g.type.name }}» té més d’un port</span>
-            <div v-for="extra in g.extras" :key="'extra' + extra.id" class="flex items-center gap-2 text-[12.5px] text-ink">
-              <span class="min-w-0 flex-1 truncate" :title="extra.name">{{ extra.name }}</span>
-              <button class="btn btn-danger !h-6 !px-2 !text-[11px]" @click="removeRole(extra.id, g.type.id)">Treu</button>
+          <template v-else>
+            <!-- One row per port the type drives; the first row doubles as the «Sense port» chooser -->
+            <div v-for="(p, index) in g.playing" :key="'role' + p.id" class="flex items-center gap-1">
+              <select :id="index === 0 ? 'port-' + g.type.id : undefined" class="field min-w-0 flex-1" :value="p.id"
+                @change="setTypePort(g.type.id, p.id, ($event.target as HTMLSelectElement).value)">
+                <option value="">Sense port</option>
+                <option v-for="o in g.options" :key="o.port.id" :value="o.port.id">{{ portOptionLabel(o) }}</option>
+              </select>
+              <!-- With several ports, each one can have its own track so its clips move it alone -->
+              <button v-if="g.playing.length > 1 && !portTracks.has(p.id)" class="btn !h-7 !px-2 !text-[11px] flex-shrink-0"
+                :title="`Afegeix una pista que només mou «${p.name}»`" @click="addPortTrack(p)">Pista</button>
+              <span v-else-if="g.playing.length > 1" class="flex-shrink-0 text-[11px] text-ink-muted" :title="`«${p.name}» té la seva pista a la línia de temps`">té pista</span>
+              <button v-if="g.playing.length > 1" class="btn btn-danger !h-7 !w-7 !px-0 !text-[12px] flex-shrink-0"
+                :title="`«${p.name}» deixa de fer de «${g.type.name}»`" @click="removeRole(p.id, g.type.id)">×</button>
             </div>
-            <p class="text-[11px] text-ink-muted">Un tipus mou un sol port. Treu els sobrants o tria’n un altre al desplegable.</p>
-          </div>
+            <!-- No port yet, or adding one more: a chooser with nothing selected -->
+            <select v-if="g.playing.length === 0 || addingPortFor.includes(g.type.id)" :id="g.playing.length === 0 ? 'port-' + g.type.id : undefined"
+              class="field" value=""
+              @change="addTypePortChosen(g.type.id, ($event.target as HTMLSelectElement).value)">
+              <option value="">{{ g.playing.length === 0 ? 'Sense port' : 'Tria el port…' }}</option>
+              <option v-for="o in g.options.filter(o => !g.playing.some(p => p.id === o.port.id))" :key="o.port.id" :value="o.port.id">{{ portOptionLabel(o) }}</option>
+            </select>
+            <button v-else-if="g.options.length > g.playing.length" type="button" class="self-start text-[11px] text-accent-ink hover:underline"
+              :title="`«${g.type.name}» mou un port més (dos llums o dos motors independents a la mateixa peça)`"
+              @click="startAddingPort(g.type.id)">+ Un altre port</button>
+            <p v-if="g.playing.length > 1" class="text-[11px]" :class="g.playing.every(p => portTracks.has(p.id)) ? 'text-ink-muted' : 'text-warn'">
+              «{{ g.type.name }}» mou {{ g.playing.length }} ports: els clips de la pista general els mouen tots alhora; els d’una pista de port, només aquell.
+            </p>
+          </template>
           <p v-if="g.options.length && unboundTypes.some(t => t.id === g.type.id)" class="text-[11px] text-warn">
             <template v-if="portGroups.length > 1">Cap port fa de «{{ g.type.name }}»: les seves accions no arribaran al maquinari.</template>
             <template v-else>Sense port, les accions no arribaran al maquinari.</template>

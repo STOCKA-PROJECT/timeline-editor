@@ -72,6 +72,12 @@ export interface SceneTrack {
   id: string
   itemId: string
   name: string
+  /**
+   * Port of the item (one of `item.ports`) this track drives: its clips reach only that port, so a
+   * piece with two independent lights of the same type gets one track per relay. Absent: the clips
+   * drive every port of the item playing the action's type.
+   */
+  portId?: number
 }
 
 export type ClipParamValues = Record<string, unknown>

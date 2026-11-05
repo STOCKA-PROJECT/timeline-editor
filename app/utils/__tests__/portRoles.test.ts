@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import type { PieceListItemDto, PortResponseDto } from '~/types/api'
 import type { SceneItem } from '~/types/editor'
 import {
+  addTypePort,
   compatiblePorts,
   hardwareTypes,
   invalidBindings,
   kindLabel,
+  moveTypePort,
   portFitsType,
   portPlays,
   portRoles,
@@ -143,6 +145,37 @@ describe('withTypePort', () => {
   })
 })
 
+describe('addTypePort / moveTypePort', () => {
+  it('addTypePort gives a type one more port, keeping the ones it drives', () => {
+    expect(addTypePort(item([2], { 2: LLUM }), portById, LLUM, 3)).toEqual({ ports: [2, 3], portTypes: { 2: LLUM, 3: LLUM } })
+    // The implicit role of a bound port is kept, and a port of another role gains a second one.
+    expect(addTypePort(item([2]), portById, MOVIMENT, 3)).toEqual({ ports: [2, 3], portTypes: { 2: MOVIMENT, 3: MOVIMENT } })
+    expect(addTypePort(item([2], { 2: LLUM }), portById, MOVIMENT, 2)).toEqual({ ports: [2], portTypes: { 2: [LLUM, MOVIMENT] } })
+    // Already playing it: nothing changes.
+    expect(addTypePort(item([2], { 2: LLUM }), portById, LLUM, 2)).toEqual({ ports: [2], portTypes: { 2: LLUM } })
+    expect(addTypePort(item([]), portById, LLUM, 999)).toEqual({ ports: [999], portTypes: { 999: LLUM } })
+  })
+
+  it('moveTypePort swaps one of the ports of a type for another, leaving its siblings alone', () => {
+    expect(moveTypePort(item([2, 3], { 2: LLUM, 3: LLUM }), portById, LLUM, 3, 5)).toEqual({ ports: [2, 5], portTypes: { 2: LLUM, 5: LLUM } })
+    // Moving onto a port that already plays the type just removes the old one.
+    expect(moveTypePort(item([2, 3], { 2: LLUM, 3: LLUM }), portById, LLUM, 3, 2)).toEqual({ ports: [2], portTypes: { 2: LLUM } })
+    // The old port keeps its other roles; null just leaves.
+    expect(moveTypePort(item([2], { 2: [LLUM, MOVIMENT] }), portById, LLUM, 2, 3)).toEqual({ ports: [2, 3], portTypes: { 2: MOVIMENT, 3: LLUM } })
+    expect(moveTypePort(item([2, 3], { 2: LLUM, 3: LLUM }), portById, LLUM, 3, null)).toEqual({ ports: [2], portTypes: { 2: LLUM } })
+    expect(moveTypePort(item([2]), portById, MOVIMENT, 2, 3)).toEqual({ ports: [3], portTypes: { 3: MOVIMENT } })
+    // An unknown source port is a no-op apart from the join.
+    expect(moveTypePort(item([2], { 2: LLUM }), portById, LLUM, 99, 3)).toEqual({ ports: [2, 3], portTypes: { 2: LLUM, 3: LLUM } })
+  })
+
+  it('do not mutate the item', () => {
+    const base = item([2], { 2: LLUM })
+    addTypePort(base, portById, LLUM, 3)
+    moveTypePort(base, portById, LLUM, 2, 3)
+    expect(base).toEqual(item([2], { 2: LLUM }))
+  })
+})
+
 describe('withoutRole / withoutPort', () => {
   it('removes one role of a port, unbinding it when none is left', () => {
     expect(withoutRole(item([2], { 2: [LLUM, MOVIMENT] }), portById, 2, LLUM)).toEqual({ ports: [2], portTypes: { 2: MOVIMENT } })
@@ -165,30 +198,29 @@ describe('roleGroups', () => {
     expect(groups.map(g => g.type.name)).toEqual(['Llum', 'Peça Moviment'])
     expect(groups[0]!.options.map(o => o.port.id)).toEqual([2, 3, 5])
     expect(groups[1]!.options.map(o => o.port.id)).toEqual([2, 3, 5])
-    expect(groups.every(g => g.selected === null && g.extras.length === 0)).toBe(true)
+    expect(groups.every(g => g.playing.length === 0)).toBe(true)
     expect(groups.flatMap(g => g.options).every(o => o.usedBy.length === 0 && o.alsoPlays.length === 0)).toBe(true)
   })
 
   it('selects the port playing each type and says when the option already plays the other type', () => {
     const [llum, moviment] = roleGroups(item([2, 3], { 2: LLUM }), dona, ports)
-    expect(llum!.selected).toBe(onOff1)
-    expect(moviment!.selected).toBe(onOff2)
+    expect(llum!.playing).toEqual([onOff1])
+    expect(moviment!.playing).toEqual([onOff2])
     expect(llum!.options.map(o => o.alsoPlays.map(t => t.name))).toEqual([[], ['Peça Moviment'], []])
     expect(moviment!.options.map(o => o.alsoPlays.map(t => t.name))).toEqual([['Llum'], [], []])
   })
 
   it('a port playing both types is selected in both groups and offered without an alsoPlays note for itself', () => {
     const [llum, moviment] = roleGroups(item([2], { 2: [LLUM, MOVIMENT] }), dona, ports)
-    expect(llum!.selected).toBe(onOff1)
-    expect(moviment!.selected).toBe(onOff1)
+    expect(llum!.playing).toEqual([onOff1])
+    expect(moviment!.playing).toEqual([onOff1])
     expect(llum!.options[0]!.alsoPlays.map(t => t.name)).toEqual(['Peça Moviment'])
     expect(moviment!.options[0]!.alsoPlays.map(t => t.name)).toEqual(['Llum'])
   })
 
-  it('lists further ports of a type (older scenes) as extras, in binding order', () => {
+  it('lists every port of a type (two independent lights) in binding order', () => {
     const [llum] = roleGroups(item([3, 2, 5], { 3: LLUM, 2: LLUM }), dona, ports)
-    expect(llum!.selected).toBe(onOff2)
-    expect(llum!.extras).toEqual([onOff1, onOff3])
+    expect(llum!.playing).toEqual([onOff2, onOff1, onOff3])
   })
 
   it('names the other items using each port', () => {
@@ -198,16 +230,16 @@ describe('roleGroups', () => {
   })
 
   it('a role the piece does not have or of another kind selects nothing (the invalid list reports it)', () => {
-    expect(roleGroups(item([2], { 2: 999 }), dona, ports).map(g => g.selected)).toEqual([null, null])
-    expect(roleGroups(item([102], { 102: LLUM }), dona, ports).map(g => g.selected)).toEqual([null, null])
+    expect(roleGroups(item([2], { 2: 999 }), dona, ports).map(g => g.playing)).toEqual([[], []])
+    expect(roleGroups(item([102], { 102: LLUM }), dona, ports).map(g => g.playing)).toEqual([[], []])
     // An unbound port's own type is not a selection either.
-    expect(roleGroups(item([]), dona, ports).map(g => g.selected)).toEqual([null, null])
+    expect(roleGroups(item([]), dona, ports).map(g => g.playing)).toEqual([[], []])
   })
 
   it('is empty without hardware types or piece', () => {
     expect(roleGroups(item([]), figura, ports)).toEqual([])
     expect(roleGroups(item([]), undefined, ports)).toEqual([])
-    expect(roleGroups(item([]), casa, [])).toEqual([{ type: casa.pieceTypes[1], selected: null, extras: [], options: [] }])
+    expect(roleGroups(item([]), casa, [])).toEqual([{ type: casa.pieceTypes[1], playing: [], options: [] }])
   })
 })
 

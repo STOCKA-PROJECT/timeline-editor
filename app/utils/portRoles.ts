@@ -3,12 +3,13 @@ import { isOutputKind, type OutputKind } from '~/types/catalog'
 import type { SceneItem } from '~/types/editor'
 
 // Which piece type each port of a board item plays ("role"). A hardware type of a piece drives one
-// port («Llum» is one relay), chosen in the inspector among every port of the type's kind. A piece
-// with two types of the same kind (a figure with «Llum» and «Moviment», both relays) gets one
-// dropdown per type, each driven by the actions of its type; both may pick the same port, which
-// then plays both types. The item stores the roles in `portTypes` (port id → type id, or a list of
-// type ids when the port plays several); a port without an entry plays its own type, so older
-// scenes keep working.
+// or more ports («Llum» is one relay; a piece with two independent lights has two), chosen in the
+// inspector among every port of the type's kind. A piece with two types of the same kind (a figure
+// with «Llum» and «Moviment», both relays) gets one list per type, each driven by the actions of
+// its type; both may pick the same port, which then plays both types. The item stores the roles in
+// `portTypes` (port id → type id, or a list of type ids when the port plays several); a port
+// without an entry plays its own type, so older scenes keep working. When a type drives several
+// ports, a track per port (`SceneTrack.portId`) tells them apart on the timeline.
 
 /** What the role functions need from a port. */
 export type PortLike = Pick<PortResponseDto, 'id' | 'kind' | 'pieceTypeId'>
@@ -101,7 +102,7 @@ function fromRoles(item: ItemPorts, roles: Map<number, number[] | null>): ItemPo
 }
 
 /**
- * Item fields after choosing the port a type drives: the type leaves every other port (a port
+ * Item fields after choosing the one port a type drives: the type leaves every other port (a port
  * left without a role is unbound) and joins the roles of the chosen one, which is bound if it was
  * not. `null` leaves the type without a port.
  */
@@ -110,11 +111,36 @@ export function withTypePort(item: ItemPorts, portById: (id: number) => PortLike
   for (const [id, types] of roles) {
     if (id !== portId && types) roles.set(id, types.filter(t => t !== typeId))
   }
-  if (portId != null) {
-    // A port bound so far keeps its other roles; a newly bound one plays the chosen type only.
-    const current = roles.get(portId) ?? []
-    roles.set(portId, current.includes(typeId) ? current : [...current, typeId])
-  }
+  if (portId != null) join(roles, typeId, portId)
+  return fromRoles(item, roles)
+}
+
+/** The type joins the roles of the port (bound if it was not); a port bound so far keeps its other roles. */
+function join(roles: Map<number, number[] | null>, typeId: number, portId: number) {
+  const current = roles.get(portId) ?? []
+  roles.set(portId, current.includes(typeId) ? current : [...current, typeId])
+}
+
+/**
+ * Item fields after a type starts driving one more port (a piece with two independent lights): the
+ * ports it already drives keep playing it. Nothing changes when the port plays the type already.
+ */
+export function addTypePort(item: ItemPorts, portById: (id: number) => PortLike | undefined, typeId: number, portId: number): ItemPorts {
+  const roles = rolesByPort(item, portById)
+  join(roles, typeId, portId)
+  return fromRoles(item, roles)
+}
+
+/**
+ * Item fields after one of the ports a type drives is swapped for another: the type leaves `fromPortId`
+ * (unbound when no role is left) and joins `toPortId` (`null` just leaves). The other ports playing
+ * the type are untouched, so a row of the inspector changes without disturbing its siblings.
+ */
+export function moveTypePort(item: ItemPorts, portById: (id: number) => PortLike | undefined, typeId: number, fromPortId: number, toPortId: number | null): ItemPorts {
+  const roles = rolesByPort(item, portById)
+  const from = roles.get(fromPortId)
+  if (from) roles.set(fromPortId, from.filter(t => t !== typeId))
+  if (toPortId != null) join(roles, typeId, toPortId)
   return fromRoles(item, roles)
 }
 
@@ -146,20 +172,18 @@ export interface RoleOption<P extends PortLike = PortResponseDto> {
   alsoPlays: PieceTypeRefDto[]
 }
 
-/** The ports a hardware type of the piece can use, with the one it drives for the item. */
+/** The ports a hardware type of the piece can use, with the ones it drives for the item. */
 export interface RoleGroup<P extends PortLike = PortResponseDto> {
   type: PieceTypeRefDto
-  /** The port playing the type for the item (the first one when an older scene bound several). */
-  selected: P | null
-  /** Further ports playing the type (older scenes): a type drives one port, so they are to remove. */
-  extras: P[]
+  /** The ports playing the type for the item, in binding order (several for two independent lights). */
+  playing: P[]
   /** Every port of the type's kind, in catalog order. */
   options: RoleOption<P>[]
 }
 
 /**
  * Ports grouped by hardware type of the piece: every port of the type's kind as an option, with
- * the port playing that type for the item. `usedBy` names the other items bound to a port.
+ * the ports playing that type for the item. `usedBy` names the other items bound to a port.
  */
 export function roleGroups<P extends PortLike>(
   item: ItemPorts | undefined,
@@ -176,8 +200,7 @@ export function roleGroups<P extends PortLike>(
       .filter((p): p is P => !!p && portRoles(item, p).includes(type.id))
     return {
       type,
-      selected: playing[0] ?? null,
-      extras: playing.slice(1),
+      playing,
       options: fitting.map(port => ({
         port,
         usedBy: usedBy(port.id),

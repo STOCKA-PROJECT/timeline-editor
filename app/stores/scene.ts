@@ -471,7 +471,11 @@ export const useSceneStore = defineStore('scene', () => {
     return item
   }
 
-  /** Merges fields into an item; a field set to `undefined` is removed (e.g. an emptied `portTypes`). */
+  /**
+   * Merges fields into an item; a field set to `undefined` is removed (e.g. an emptied `portTypes`).
+   * When the ports change, a track driving a port the item no longer has drives every port of its
+   * type again.
+   */
   function updateItem(id: string, partial: Partial<SceneItem>) {
     items.value = items.value.map((i) => {
       if (i.id !== id) return i
@@ -481,6 +485,10 @@ export const useSceneStore = defineStore('scene', () => {
       }
       return next
     })
+    if ('ports' in partial) {
+      const bound = new Set(partial.ports ?? [])
+      tracks.value = tracks.value.map(t => (t.itemId === id && t.portId != null && !bound.has(t.portId) ? withoutTrackPort(t) : t))
+    }
     touch()
   }
 
@@ -513,18 +521,58 @@ export const useSceneStore = defineStore('scene', () => {
   }
 
   // ----- tracks -----
+  const tracksForItem = (itemId: string) => tracks.value.filter(t => t.itemId === itemId)
+
+  function withoutTrackPort(track: SceneTrack): SceneTrack {
+    const { portId: _dropped, ...rest } = track
+    return rest
+  }
+
+  /** The item's first track without port (its clips drive every port of their type), created if missing. */
   function ensureTrackForItem(itemId: string): SceneTrack {
-    const existing = tracks.value.find(t => t.itemId === itemId)
+    const existing = tracks.value.find(t => t.itemId === itemId && t.portId == null)
     if (existing) return existing
     const item = itemById(itemId)
     const track: SceneTrack = {
       id: nextId('track'),
       itemId,
-      name: item ? `Artículo ${item.pieceId}` : 'Pista'
+      name: item ? `Article ${item.pieceId}` : 'Pista'
     }
     tracks.value = [...tracks.value, track]
     touch()
     return track
+  }
+
+  /**
+   * The item's track driving one of its ports (its clips reach only that port), created right after
+   * the item's other tracks if missing. `name` names a new track (the port's name, normally).
+   */
+  function ensurePortTrack(itemId: string, portId: number, name?: string): SceneTrack {
+    const existing = tracks.value.find(t => t.itemId === itemId && t.portId === portId)
+    if (existing) return existing
+    const track: SceneTrack = { id: nextId('track'), itemId, name: name ?? `Port ${portId}`, portId }
+    const last = tracks.value.map(t => t.itemId).lastIndexOf(itemId)
+    const next = [...tracks.value]
+    next.splice(last < 0 ? next.length : last + 1, 0, track)
+    tracks.value = next
+    touch()
+    return track
+  }
+
+  /** Makes a track drive one port of its item (`null`: every port of the action's type again). */
+  function setTrackPort(trackId: string, portId: number | null) {
+    tracks.value = tracks.value.map((t) => {
+      if (t.id !== trackId) return t
+      return portId == null ? withoutTrackPort(t) : { ...t, portId }
+    })
+    touch()
+  }
+
+  /** Removes a track with its clips. */
+  function removeTrack(trackId: string) {
+    tracks.value = tracks.value.filter(t => t.id !== trackId)
+    clips.value = clips.value.filter(c => c.trackId !== trackId)
+    touch()
   }
 
   // ----- clips -----
@@ -629,7 +677,11 @@ export const useSceneStore = defineStore('scene', () => {
     removeItem,
     itemsOnPort,
     moveItemOnPort,
+    tracksForItem,
     ensureTrackForItem,
+    ensurePortTrack,
+    setTrackPort,
+    removeTrack,
     addClip,
     updateClip,
     removeClip,
