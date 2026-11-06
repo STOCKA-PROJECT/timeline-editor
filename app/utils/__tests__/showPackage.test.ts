@@ -3,6 +3,10 @@ import type { ShowPackage } from '~/types/show'
 import { assembleShowPackage, buildShowPackage, serializeShowPackage, showHash, showHashInput } from '~/utils/showPackage'
 import sample from './fixtures/belen-2026.show.json'
 import * as fx from './fixtures/belen2026'
+import type { PieceListItemDto, PieceTypeActionResponseDto, PortResponseDto } from '~/types/api'
+import type { SceneClip, SceneDocument, SceneTrack } from '~/types/editor'
+import type { CatalogLookups } from '~/utils/exportBundle'
+import { commonPositionNames, findPosition, positionNames, positionsOf, resolvePosition } from '~/utils/headPositions'
 
 const expected = sample as ShowPackage
 
@@ -625,5 +629,103 @@ describe('pieces by port (meta.pieces)', () => {
     const { pkg: more } = await buildShowPackage(input({ doc: extra }))
     expect(more!.meta.pieces).not.toEqual(pkg!.meta.pieces)
     expect(more!.meta.hash).toBe(pkg!.meta.hash)
+  })
+})
+
+describe('head positions (set with position)', () => {
+  const HEAD_TYPE = 7
+  const SET = 70
+  const heads: PortResponseDto[] = [
+    { id: 60, name: 'Cap1', kind: 'moving_head', pieceTypeId: HEAD_TYPE, pieceTypeName: 'Cabezal', pin: null, position: 60, parameters: [],
+      config: { profile: 'varytec-hero-wash-712z', address: 1, positions: [
+        { name: 'Portal', pan: 212, tilt: 48, zoom: 12, intensity: 80, color: [255, 200, 120] },
+        { name: 'Estrella', pan: 300, tilt: 150 }] } },
+    { id: 61, name: 'Cap2', kind: 'moving_head', pieceTypeId: HEAD_TYPE, pieceTypeName: 'Cabezal', pin: null, position: 61, parameters: [],
+      config: { profile: 'varytec-hero-wash-712z', address: 16, positions: [{ name: 'portal', pan: 100, tilt: 20, white: 40 }] } }
+  ]
+  const cap: PieceListItemDto = { id: 50, name: 'Cap', pieceTypes: [{ id: HEAD_TYPE, name: 'Cabezal', kind: 'moving_head' }], status: 'ACTIVE', createdAt: '', updatedAt: '' }
+  const setAction: PieceTypeActionResponseDto = { id: SET, name: 'set', displayName: 'Posició', position: 1, parameters: [
+    { name: 'position', displayName: 'Posició', type: 'TEXT', required: false, dynamic: true },
+    { name: 'from_position', displayName: 'Des de', type: 'TEXT', required: false, dynamic: true },
+    { name: 'intensity', displayName: 'Intensitat', type: 'DECIMAL', required: false, dynamic: true },
+    { name: 'time', displayName: 'Temps', type: 'DECIMAL', required: false, dynamic: true, isDuration: true }
+  ] }
+  const lookups: CatalogLookups = {
+    pieceById: id => (id === 50 ? cap : undefined),
+    portById: id => heads.find(p => p.id === id),
+    actionsForPiece: piece => (piece?.id === 50 ? [setAction] : []),
+    typeIdOfAction: id => (id === SET ? HEAD_TYPE : undefined)
+  }
+  function headDoc(extraTracks: SceneTrack[], clips: SceneClip[]): SceneDocument {
+    const doc = fx.document()
+    doc.items = [{ id: 'i-cap', pieceId: 50, layerId: 'layer-1', x: 0, y: 0, width: 100, height: 100, rotation: 0, ports: [60, 61] }]
+    doc.tracks = [{ id: 't-cap', itemId: 'i-cap', name: 'Cap' }, ...extraTracks]
+    doc.clips = clips
+    return doc
+  }
+
+  it('each head goes to its own position, the clip values win and the name never reaches the show', () => {
+    const doc = headDoc([], [
+      { id: 'k1', trackId: 't-cap', pieceTypeActionId: SET, startMs: 0, durationMs: 3000, paramValues: { position: ' Portal ' } },
+      { id: 'k2', trackId: 't-cap', pieceTypeActionId: SET, startMs: 5000, durationMs: 1000, paramValues: { position: 'Portal', intensity: 50 } }
+    ])
+    const { body, issues } = assembleShowPackage(input({ doc, catalog: lookups, orgPorts: heads }))
+    expect(issues.filter(i => i.level === 'error')).toEqual([])
+    expect(codes(issues)).toEqual(['W_PORTS_TOGETHER'])
+    const at = (target: string, t: number) => body.timeline.find(e => e.target === target && e.t === t)!
+    expect(at('Cap1', 0)).toEqual({ t: 0, target: 'Cap1', action: 'set', params: { pan: 212, tilt: 48, zoom: 12, intensity: 80, color: [255, 200, 120], time: 3 } })
+    expect(at('Cap2', 0).params).toEqual({ pan: 100, tilt: 20, white: 40, time: 3 })
+    expect(at('Cap1', 5000).params).toMatchObject({ pan: 212, intensity: 50 })
+    expect(body.timeline.every(e => !('position' in e.params))).toBe(true)
+    expect(body.hardware.Cap1).toHaveProperty('positions')
+  })
+
+  it('a head without the position is E_POSITION_UNKNOWN naming the port; a blank position is no position', () => {
+    const doc = headDoc([{ id: 'tp', itemId: 'i-cap', name: 'Cap2', portId: 61 }], [
+      { id: 'k1', trackId: 't-cap', pieceTypeActionId: SET, startMs: 0, durationMs: 1000, paramValues: { position: 'Estrella' } },
+      { id: 'k2', trackId: 'tp', pieceTypeActionId: SET, startMs: 2000, durationMs: 1000, paramValues: { position: 'Nada' } },
+      { id: 'k3', trackId: 't-cap', pieceTypeActionId: SET, startMs: 4000, durationMs: 1000, paramValues: { position: '', intensity: 10 } }
+    ])
+    const { body, issues } = assembleShowPackage(input({ doc, catalog: lookups, orgPorts: heads }))
+    const errors = issues.filter(i => i.level === 'error')
+    expect(codes(errors)).toEqual(['E_POSITION_UNKNOWN', 'E_POSITION_UNKNOWN'])
+    expect(errors[0]).toMatchObject({ clipId: 'k1', port: 'Cap2' })
+    expect(errors[0]!.message).toContain('Cap2')
+    expect(errors[0]!.message).toContain('Estrella')
+    expect(errors[0]!.message).toContain('portal')
+    expect(errors[1]).toMatchObject({ clipId: 'k2', port: 'Cap2' })
+    expect(body.timeline.find(e => e.target === 'Cap1' && e.t === 0)!.params).toEqual({ pan: 300, tilt: 150, time: 1 })
+    expect(body.timeline.find(e => e.target === 'Cap1' && e.t === 4000)!.params).toEqual({ intensity: 10, time: 1 })
+    expect(body.timeline.filter(e => e.target === 'Cap2')).toHaveLength(1)
+  })
+
+  it('from_position becomes an immediate cue to the start position right before the move, per head', () => {
+    const doc = headDoc([], [
+      { id: 'k1', trackId: 't-cap', pieceTypeActionId: SET, startMs: 1000, durationMs: 4000, paramValues: { from_position: 'portal', position: 'Estrella' } },
+      { id: 'k2', trackId: 't-cap', pieceTypeActionId: SET, startMs: 9000, durationMs: 1000, paramValues: { from_position: 'Estrella', intensity: 0 } }
+    ])
+    const { body, issues } = assembleShowPackage(input({ doc, catalog: lookups, orgPorts: heads }))
+    const errors = issues.filter(i => i.level === 'error')
+    expect(codes(errors)).toEqual(['E_POSITION_UNKNOWN', 'E_POSITION_UNKNOWN'])
+    expect(errors.every(e => e.port === 'Cap2')).toBe(true)
+    const cap1 = body.timeline.filter(e => e.target === 'Cap1')
+    expect(cap1.map(e => [e.t, e.params])).toEqual([
+      [1000, { pan: 212, tilt: 48, zoom: 12, intensity: 80, color: [255, 200, 120] }],
+      [1000, { pan: 300, tilt: 150, time: 4 }],
+      [9000, { pan: 300, tilt: 150 }],
+      [9000, { intensity: 0, time: 1 }]
+    ])
+    expect(body.timeline.filter(e => e.target === 'Cap2')).toEqual([])
+  })
+
+  it('helpers: names, lookup, common names and the merge rule', () => {
+    expect(positionNames(heads[0])).toEqual(['Portal', 'Estrella'])
+    expect(findPosition(heads[1], ' PORTAL ')?.pan).toBe(100)
+    expect(findPosition(heads[1], 'Estrella')).toBeUndefined()
+    expect(commonPositionNames(heads)).toEqual(['Portal'])
+    expect(commonPositionNames([])).toEqual([])
+    expect(positionsOf({ config: { positions: [{ name: '' }, 'x', { name: 'A', pan: 1 }] } })).toEqual([{ name: 'A', pan: 1 }])
+    expect(resolvePosition({ position: 'P', intensity: '', tilt: 5, time: 2 }, { name: 'P', pan: 1, intensity: 80 }))
+      .toEqual({ pan: 1, intensity: 80, tilt: 5, time: 2 })
   })
 })

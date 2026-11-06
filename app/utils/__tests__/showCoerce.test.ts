@@ -65,6 +65,16 @@ describe('coerceParam', () => {
   })
 })
 
+describe('position (saved head position)', () => {
+  it('trims a name, refuses blanks and non-strings, and passes a positions list through', () => {
+    expect(coerceParam(' Portal ', { type: 'position' })).toEqual({ ok: true, value: 'Portal' })
+    expect(coerceParam('   ', { type: 'position' })).toEqual({ ok: true, value: undefined, omitted: true })
+    expect(coerceParam(3, { type: 'position' })).toMatchObject({ ok: false, reason: 'type' })
+    expect(coerceParam([{ name: 'Portal', pan: 1 }], { type: 'positions' })).toMatchObject({ ok: true })
+    expect(coerceParam('Portal', { type: 'positions' })).toMatchObject({ ok: false, reason: 'type' })
+  })
+})
+
 describe('rgb_list (fade waypoints)', () => {
   it('parses arrays, JSON text and ;-separated colours in any notation', () => {
     expect(parseRgbList([[1, 2, 3], '#00ff00', '255,0,0'])).toEqual([[1, 2, 3], [0, 255, 0], [255, 0, 0]])

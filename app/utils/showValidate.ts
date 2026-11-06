@@ -60,6 +60,14 @@ export function checkValue(value: unknown, spec: CatalogParam): string | null {
     case 'enum':
       if (typeof value !== 'string' || !spec.values?.includes(value)) return `ha de ser un de: ${(spec.values ?? []).join(', ')}`
       return null
+    case 'position':
+      if (typeof value !== 'string' || value.trim() === '') return 'ha de ser el nom d\'una posició del port'
+      return null
+    case 'positions':
+      if (!Array.isArray(value) || !value.every(p => p && typeof p === 'object' && typeof (p as { name?: unknown }).name === 'string' && (p as { name: string }).name.trim() !== '')) {
+        return 'ha de ser una llista de posicions amb name'
+      }
+      return null
   }
   const n = value as number
   if (spec.min !== undefined && n < spec.min) return `ha de ser com a mínim ${spec.min}`

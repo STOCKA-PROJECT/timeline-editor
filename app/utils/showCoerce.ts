@@ -17,7 +17,9 @@ const TYPE_LABEL: Record<CatalogParam['type'], string> = {
   string: 'text',
   rgb: 'un color [r, g, b]',
   rgb_list: 'una llista de colors',
-  enum: 'un valor de la llista'
+  enum: 'un valor de la llista',
+  position: 'el nom d\'una posició del port',
+  positions: 'una llista de posicions'
 }
 
 /** Parses a colour given as `[r,g,b]`, `"[r,g,b]"`, `"r,g,b"`, `"#rrggbb"` or `"#rgb"`. */
@@ -142,6 +144,13 @@ export function coerceParam(value: unknown, spec: CatalogParam): CoerceResult {
     case 'enum': {
       if (typeof value === 'string' && spec.values?.includes(value)) return { ok: true, value }
       return { ok: false, reason: 'enum', expected: (spec.values ?? []).join(', ') }
+    }
+    case 'position': {
+      if (typeof value === 'string' && value.trim() !== '') return { ok: true, value: value.trim() }
+      return { ok: false, reason: 'type', expected: TYPE_LABEL.position }
+    }
+    case 'positions': {
+      return Array.isArray(value) ? { ok: true, value } : { ok: false, reason: 'type', expected: TYPE_LABEL.positions }
     }
   }
 }

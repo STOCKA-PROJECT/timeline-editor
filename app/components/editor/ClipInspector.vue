@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ActionParameterDto } from '~/types/api'
+import type { ActionParameterDto, PortResponseDto } from '~/types/api'
 import type { SceneTrack } from '~/types/editor'
 import type { PortLike } from '~/utils/portRoles'
 import { catalog as outputCatalog, actionParams, isOutputKind, type CatalogType } from '~/types/catalog'
@@ -7,6 +7,7 @@ import { assetNameFor, audioFileWindow, formatClock } from '~/utils/audioAssets'
 import { LED_PATH_PRESET_LABELS, ledPathOf, presetOfPath, presetPath, reverseLedPath, type LedPathPreset } from '~/utils/ledPath'
 import { layoutStrip } from '~/utils/stripLayout'
 import { getAudioContext, loadDecodedAudio } from '~/utils/audioCache'
+import { commonPositionNames, positionNames } from '~/utils/headPositions'
 import { parseRgb } from '~/utils/showCoerce'
 import { addTypePort, invalidBindings, kindLabel, moveTypePort, portPlays, portRoles, roleGroups, sharedRoles, typesWithoutPort, withoutPort, withoutRole, type RoleOption } from '~/utils/portRoles'
 
@@ -205,6 +206,23 @@ const catalogParamTypes = computed<Record<string, CatalogType>>(() => {
   if (!spec || !action) return {}
   // For `animate`, the extra parameters depend on the animation: fixed on the type or set per clip.
   return Object.fromEntries(Object.entries(actionParams(spec, selectedAnimation.value)).map(([name, p]) => [name, p.type]))
+})
+/**
+ * Saved positions a `position` parameter may name: those of the track's port, or the ones every
+ * head of the item playing the action's type has (a clip on the general track reaches all of them).
+ */
+const positionOptions = computed<string[]>(() => {
+  const action = selectedAction.value
+  if (!action || !item.value) return []
+  if (trackPort.value) return positionNames(trackPort.value)
+  const typeId = catalog.typeIdOfAction(action.id)
+  if (typeId == null) return []
+  const heads: PortResponseDto[] = []
+  for (const id of item.value.ports ?? []) {
+    const port = catalog.portById(id)
+    if (port && port.kind === 'moving_head' && portPlays(item.value, port, typeId)) heads.push(port)
+  }
+  return commonPositionNames(heads)
 })
 // ---- LED preview ----
 /** Animation the clip will run: fixed on the action or chosen on the clip (null when unknown). */
@@ -653,6 +671,7 @@ watch(stripsOfItem, (strips) => {
           :key="param.name"
           :param="param"
           :catalog-type="catalogParamTypes[param.name] ?? null"
+          :position-options="catalogParamTypes[param.name] === 'position' ? positionOptions : null"
           :model-value="clip.paramValues[param.name]"
           @update:model-value="setParam(param, $event)" />
       </div>

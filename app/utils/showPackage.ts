@@ -20,6 +20,7 @@ import {
 import { audioFileWindow, findAudioByAssetName, formatClock } from '~/utils/audioAssets'
 import { canonicalJson, sha256Hex } from '~/utils/canonicalJson'
 import { buildExecutionPlan, type CatalogLookups, type ExecutionItem } from '~/utils/exportBundle'
+import { FROM_POSITION_PARAM, POSITION_PARAM, POSITION_VALUE_KEYS, findPosition, positionNames, resolvePosition, type HeadPosition } from '~/utils/headPositions'
 import { coerceParam } from '~/utils/showCoerce'
 import { buildHardware } from '~/utils/showHardware'
 import { validateShowPackage } from '~/utils/showValidate'
@@ -167,9 +168,45 @@ export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPac
       const rawAnimation = step.params.animation_type
       const animation = action.animations && typeof rawAnimation === 'string' ? rawAnimation : null
       const allowed = actionParams(action, animation)
+      let stepParams = step.params
+      /** The position a clip parameter names on this port, or null after an E_POSITION_UNKNOWN. */
+      const positionOf = (raw: string): HeadPosition | null => {
+        const saved = findPosition(port, raw)
+        if (saved) return saved
+        const names = positionNames(port)
+        issues.push(issue('error', 'E_POSITION_UNKNOWN',
+          `El port «${port.name}» no té cap posició «${raw.trim()}» (clip «${label}», ${step.startMs} ms)${names.length ? `; en té: ${names.join(', ')}.` : ': desa-la des de la pàgina del dispositiu.'}`,
+          { clipId: step.clipId, port: port.name }))
+        return null
+      }
+      // A saved position of this port fills the parameters the clip does not give (the clip's own
+      // win); the show carries the resolved values, never the name.
+      const positionName = stepParams[POSITION_PARAM]
+      if (POSITION_PARAM in allowed && typeof positionName === 'string' && positionName.trim() !== '') {
+        const saved = positionOf(positionName)
+        if (!saved) continue
+        stepParams = resolvePosition(stepParams, saved)
+      }
+      // The position the head starts from: an immediate cue to it right before this one.
+      let snapTo: ShowEvent | null = null
+      const fromName = stepParams[FROM_POSITION_PARAM]
+      if (FROM_POSITION_PARAM in allowed && typeof fromName === 'string' && fromName.trim() !== '') {
+        const from = positionOf(fromName)
+        if (!from) continue
+        const fromParams: Record<string, unknown> = {}
+        for (const key of POSITION_VALUE_KEYS) {
+          const pspec = allowed[key]
+          if (from[key] === undefined || from[key] === null || !pspec) continue
+          const res = coerceParam(from[key], pspec)
+          if (res.ok && !res.omitted) fromParams[key] = res.value
+        }
+        snapTo = { t: step.startMs, target: targetName, action: step.action.name, params: fromParams }
+        const { [FROM_POSITION_PARAM]: _dropped, ...rest } = stepParams
+        stepParams = rest
+      }
       const params: Record<string, unknown> = {}
       let valid = true
-      for (const [name, raw] of Object.entries(step.params)) {
+      for (const [name, raw] of Object.entries(stepParams)) {
         const pspec = allowed[name]
         if (!pspec) {
           // A type may declare the parameters of every animation at once: the ones the clip does
@@ -227,12 +264,13 @@ export function assembleShowPackage(input: BuildShowInput): { body: Omit<ShowPac
         }
       }
       for (const name of requiredParams(action, animation)) {
-        if (!(name in params) && !(name in step.params)) {
+        if (!(name in params) && !(name in stepParams)) {
           valid = false
           issues.push(issue('error', 'E_PARAM_REQUIRED', `Falta el paràmetre obligatori «${name}» al clip «${label}» (${step.startMs} ms).`, { clipId: step.clipId, port: port.name }))
         }
       }
       if (!valid) continue
+      if (snapTo) events.push(snapTo)
       events.push({ t: step.startMs, target: targetName, action: step.action.name, params })
     }
   }

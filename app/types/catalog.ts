@@ -4,7 +4,8 @@ import catalogJson from '~/data/catalog.json'
 // byte-identical copy of `rpi4-system/contract/catalog.json`; keep them in sync (see `version`).
 
 export type OutputKind = 'relay' | 'gpio_expander' | 'led_strip' | 'led_segment' | 'motor' | 'audio' | 'moving_head' | 'sensor'
-export type CatalogType = 'int' | 'number' | 'bool' | 'string' | 'rgb' | 'rgb_list' | 'enum'
+/** `position`: the name of a saved position of the `moving_head` port the clip drives; `positions`: that list, config only. */
+export type CatalogType = 'int' | 'number' | 'bool' | 'string' | 'rgb' | 'rgb_list' | 'enum' | 'position' | 'positions'
 
 export interface CatalogParam {
   type: CatalogType

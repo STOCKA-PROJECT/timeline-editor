@@ -11,6 +11,11 @@ const props = defineProps<{
    * parameter is edited with a colour picker (stored as `#rrggbb`, which the export understands).
    */
   catalogType?: CatalogType | null
+  /**
+   * For a `position` parameter: the names of the positions saved on the head(s) the clip drives
+   * (the port of its track, or every port playing the action's type). Null when unknown.
+   */
+  positionOptions?: string[] | null
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: unknown] }>()
 
@@ -70,6 +75,15 @@ function moveColor(index: number, dir: -1 | 1) {
   ;[next[index], next[target]] = [next[target]!, next[index]!]
   setColorList(next)
 }
+// ---- saved position of a moving head (catalog position) ----
+const isPosition = computed(() => props.catalogType === 'position')
+/** The stored name plus, when it is not among the options any more, itself flagged so nothing is lost. */
+const positionChoices = computed(() => {
+  const options = [...(props.positionOptions ?? [])]
+  const current = typeof props.modelValue === 'string' ? props.modelValue.trim() : ''
+  const known = current === '' || options.some(o => o.trim().toLowerCase() === current.toLowerCase())
+  return { options, current, missing: !known }
+})
 const asBool = computed(() => props.modelValue === true)
 const asArray = computed(() => (Array.isArray(props.modelValue) ? props.modelValue as string[] : []))
 
@@ -121,6 +135,22 @@ function toggleMulti(opt: string, checked: boolean) {
       <p v-if="!colorList.length" class="text-[11.5px] text-ink-muted">Cap color intermedi: el fos va directe del color inicial al final.</p>
       <p v-if="colorListInvalid" class="text-[11px] text-danger">El valor desat no és una llista de colors; en afegir-ne un es reemplaçarà.</p>
       <button type="button" class="btn !h-7 self-start !px-2 !text-[12px]" @click="addColor">+ Afegeix un color</button>
+    </div>
+
+    <div v-else-if="isPosition" class="flex flex-col gap-1">
+      <select
+        class="field" :value="positionChoices.current"
+        @change="set(($event.target as HTMLSelectElement).value || null)">
+        <option value="">—</option>
+        <option v-for="name in positionChoices.options" :key="name" :value="name">{{ name }}</option>
+        <option v-if="positionChoices.missing" :value="positionChoices.current">{{ positionChoices.current }} (no existeix al port)</option>
+      </select>
+      <p v-if="!positionChoices.options.length" class="text-[11.5px] text-ink-muted">
+        Cap posició desada als caps d'aquest clip: desa-les des de la pàgina del dispositiu a Stocka.
+      </p>
+      <p v-else-if="positionChoices.missing" class="text-[11px] text-danger">
+        El port no té aquesta posició; tria'n una de la llista.
+      </p>
     </div>
 
     <textarea
